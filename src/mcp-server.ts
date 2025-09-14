@@ -10,59 +10,59 @@ import * as fs from "fs";
 import logger from "./logger.js";
 import { chromium, Browser } from "playwright";
 
-// 全局浏览器实例
+// Global browser instance
 let globalBrowser: Browser | undefined = undefined;
 
-// 创建MCP服务器实例
+// Create MCP server instance
 const server = new McpServer({
   name: "google-search-server",
   version: "1.0.0",
 });
 
-// 注册Google搜索工具
+// Register Google search tool
 server.tool(
   "google-search",
-  "使用Google搜索引擎查询实时网络信息，返回包含标题、链接和摘要的搜索结果。适用于需要获取最新信息、查找特定主题资料、研究当前事件或验证事实的场景。结果以JSON格式返回，包含查询内容和匹配结果列表。",
+  "Uses the Google search engine to query real-time web information, returning search results including titles, links, and snippets. Suitable for scenarios requiring the latest information, finding materials on specific topics, researching current events, or verifying facts. Results are returned in JSON format, including the query content and a list of matching results.",
   {
     query: z
       .string()
       .describe(
-        "搜索查询字符串。为获得最佳结果：1)优先使用英语关键词搜索，因为英语内容通常更丰富、更新更及时，特别是技术和学术领域；2)使用具体关键词而非模糊短语；3)可使用引号\"精确短语\"强制匹配；4)使用site:域名限定特定网站；5)使用-排除词过滤结果；6)使用OR连接备选词；7)优先使用专业术语；8)控制在2-5个关键词以获得平衡结果；9)根据目标内容选择合适的语言（如需要查找特定中文资源时再使用中文）。例如:'climate change report 2024 site:gov -opinion' 或 '\"machine learning algorithms\" tutorial (Python OR Julia)'"
+        "The search query string. For best results: 1) Prioritize using English keywords for searches, as English content is generally more abundant and up-to-date, especially in technical and academic fields; 2) Use specific keywords rather than vague phrases; 3) Use quotes \"exact phrase\" to force a match; 4) Use site:domain to limit to a specific website; 5) Use - to exclude words from the results; 6) Use OR to connect alternative words; 7) Prioritize using professional terminology; 8) Control the number of keywords to 2-5 for a balanced result; 9) Choose the appropriate language based on the target content (e.g., use Chinese when searching for specific Chinese resources). For example: 'climate change report 2024 site:gov -opinion' or '\"machine learning algorithms\" tutorial (Python OR Julia)'"
       ),
     limit: z
       .number()
       .optional()
-      .describe("返回的搜索结果数量 (默认: 10，建议范围: 1-20)"),
+      .describe("The number of search results to return (default: 10, recommended range: 1-20)"),
     timeout: z
       .number()
       .optional()
-      .describe("搜索操作的超时时间(毫秒) (默认: 30000，可根据网络状况调整)"),
+      .describe("The timeout for the search operation in milliseconds (default: 30000, can be adjusted based on network conditions)"),
   },
   async (params) => {
     try {
       const { query, limit, timeout } = params;
-      logger.info({ query }, "执行Google搜索");
+      logger.info({ query }, "Executing Google search");
 
-      // 获取用户主目录下的状态文件路径
+      // Get the path to the state file in the user's home directory
       const stateFilePath = path.join(
         os.homedir(),
         ".google-search-browser-state.json"
       );
-      logger.info({ stateFilePath }, "使用状态文件路径");
+      logger.info({ stateFilePath }, "Using state file path");
 
-      // 检查状态文件是否存在
+      // Check if the state file exists
       const stateFileExists = fs.existsSync(stateFilePath);
 
-      // 初始化警告消息
+      // Initialize warning message
       let warningMessage = "";
 
       if (!stateFileExists) {
         warningMessage =
-          "⚠️ 注意：浏览器状态文件不存在。首次使用时，如果遇到人机验证，系统会自动切换到有头模式让您完成验证。完成后，系统会保存状态文件，后续搜索将更加顺畅。";
+          "⚠️ Note: The browser state file does not exist. On first use, if human verification is encountered, the system will automatically switch to headed mode for you to complete the verification. After completion, the system will save the state file, and subsequent searches will be smoother.";
         logger.warn(warningMessage);
       }
 
-      // 使用全局浏览器实例执行搜索
+      // Perform the search using the global browser instance
       const results = await googleSearch(
         query,
         {
@@ -73,7 +73,7 @@ server.tool(
         globalBrowser
       );
 
-      // 构建返回结果，包含警告信息
+      // Build the return result, including the warning message
       let responseText = JSON.stringify(results, null, 2);
       if (warningMessage) {
         responseText = warningMessage + "\n\n" + responseText;
@@ -88,14 +88,14 @@ server.tool(
         ],
       };
     } catch (error) {
-      logger.error({ error }, "搜索工具执行错误");
+      logger.error({ error }, "Search tool execution error");
 
       return {
         isError: true,
         content: [
           {
             type: "text",
-            text: `搜索失败: ${
+            text: `Search failed: ${
               error instanceof Error ? error.message : String(error)
             }`,
           },
@@ -105,13 +105,13 @@ server.tool(
   }
 );
 
-// 启动服务器
+// Start the server
 async function main() {
   try {
-    logger.info("正在启动Google搜索MCP服务器...");
+    logger.info("Starting Google search MCP server...");
 
-    // 初始化全局浏览器实例
-    logger.info("正在初始化全局浏览器实例...");
+    // Initialize the global browser instance
+    logger.info("Initializing global browser instance...");
     globalBrowser = await chromium.launch({
       headless: true,
       args: [
@@ -143,35 +143,35 @@ async function main() {
       ],
       ignoreDefaultArgs: ["--enable-automation"],
     });
-    logger.info("全局浏览器实例初始化成功");
+    logger.info("Global browser instance initialized successfully");
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
 
-    logger.info("Google搜索MCP服务器已启动，等待连接...");
+    logger.info("Google search MCP server started, waiting for connection...");
 
-    // 设置进程退出时的清理函数
+    // Set up cleanup function on process exit
     process.on("exit", async () => {
       await cleanupBrowser();
     });
 
-    // 处理Ctrl+C (Windows和Unix/Linux)
+    // Handle Ctrl+C (Windows and Unix/Linux)
     process.on("SIGINT", async () => {
-      logger.info("收到SIGINT信号，正在关闭服务器...");
+      logger.info("Received SIGINT signal, shutting down server...");
       await cleanupBrowser();
       process.exit(0);
     });
 
-    // 处理进程终止 (Unix/Linux)
+    // Handle process termination (Unix/Linux)
     process.on("SIGTERM", async () => {
-      logger.info("收到SIGTERM信号，正在关闭服务器...");
+      logger.info("Received SIGTERM signal, shutting down server...");
       await cleanupBrowser();
       process.exit(0);
     });
 
-    // Windows特定处理
+    // Windows-specific handling
     if (process.platform === "win32") {
-      // 处理Windows的CTRL_CLOSE_EVENT、CTRL_LOGOFF_EVENT和CTRL_SHUTDOWN_EVENT
+      // Handle Windows' CTRL_CLOSE_EVENT, CTRL_LOGOFF_EVENT, and CTRL_SHUTDOWN_EVENT
       const readline = await import("readline");
       const rl = readline.createInterface({
         input: process.stdin,
@@ -179,28 +179,28 @@ async function main() {
       });
 
       rl.on("SIGINT", async () => {
-        logger.info("Windows: 收到SIGINT信号，正在关闭服务器...");
+        logger.info("Windows: Received SIGINT signal, shutting down server...");
         await cleanupBrowser();
         process.exit(0);
       });
     }
   } catch (error) {
-    logger.error({ error }, "服务器启动失败");
+    logger.error({ error }, "Server failed to start");
     await cleanupBrowser();
     process.exit(1);
   }
 }
 
-// 清理浏览器资源
+// Clean up browser resources
 async function cleanupBrowser() {
   if (globalBrowser) {
-    logger.info("正在关闭全局浏览器实例...");
+    logger.info("Closing global browser instance...");
     try {
       await globalBrowser.close();
       globalBrowser = undefined;
-      logger.info("全局浏览器实例已关闭");
+      logger.info("Global browser instance closed");
     } catch (error) {
-      logger.error({ error }, "关闭浏览器实例时发生错误");
+      logger.error({ error }, "Error closing browser instance");
     }
   }
 }
