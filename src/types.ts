@@ -1,5 +1,5 @@
 /**
- * 搜索结果接口
+ * Search result interface
  */
 export interface SearchResult {
   title: string;
@@ -8,7 +8,7 @@ export interface SearchResult {
 }
 
 /**
- * 搜索响应接口
+ * Search response interface
  */
 export interface SearchResponse {
   query: string;
@@ -16,25 +16,25 @@ export interface SearchResponse {
 }
 
 /**
- * 命令行选项接口
+ * Command-line options interface
  */
 export interface CommandOptions {
   limit?: number;
   timeout?: number;
-  headless?: boolean; // 已废弃，但保留以兼容现有代码
+  headless?: boolean; // Deprecated, but kept for compatibility with existing code
   stateFile?: string;
   noSaveState?: boolean;
-  locale?: string; // 搜索结果语言，默认为中文(zh-CN)
+  locale?: string; // Search result language, defaults to English (en-US)
 }
 
 /**
- * HTML响应接口 - 用于获取原始搜索页面HTML
+ * HTML response interface - for getting the raw search page HTML
  */
 export interface HtmlResponse {
-  query: string;    // 搜索查询
-  html: string;     // 页面HTML内容（已清理，不包含CSS和JavaScript）
-  url: string;      // 搜索结果页面URL
-  savedPath?: string; // 可选，如果HTML保存到文件，则为保存路径
-  screenshotPath?: string; // 可选，网页截图保存路径
-  originalHtmlLength?: number; // 原始HTML长度（包含CSS和JavaScript）
+  query: string;    // The search query
+  html: string;     // The page's HTML content (cleaned, without CSS and JavaScript)
+  url: string;      // The URL of the search results page
+  savedPath?: string; // Optional, the path where the HTML is saved if it is saved to a file
+  screenshotPath?: string; // Optional, the path where the web page screenshot is saved
+  originalHtmlLength?: number; // Original HTML length (including CSS and JavaScript)
 }
