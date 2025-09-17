@@ -27,16 +27,20 @@ server.tool(
     query: z
       .string()
       .describe(
-        "The search query string. For best results: 1) Prioritize using English keywords for searches, as English content is generally more abundant and up-to-date, especially in technical and academic fields; 2) Use specific keywords rather than vague phrases; 3) Use quotes \"exact phrase\" to force a match; 4) Use site:domain to limit to a specific website; 5) Use - to exclude words from the results; 6) Use OR to connect alternative words; 7) Prioritize using professional terminology; 8) Control the number of keywords to 2-5 for a balanced result; 9) Choose the appropriate language based on the target content (e.g., use Chinese when searching for specific Chinese resources). For example: 'climate change report 2024 site:gov -opinion' or '\"machine learning algorithms\" tutorial (Python OR Julia)'"
+        "The search query string. For best results: 1) Prioritize using English keywords for searches, as English content is generally more abundant and up-to-date, especially in technical and academic fields; 2) Use specific keywords rather than vague phrases; 3) Use quotes \"exact phrase\" to force a match; 4) Use site:domain to limit to a specific website; 5) Use - to exclude words from the results; 6) Use OR to connect alternative words; 7) Prioritize using professional terminology; 8) Control the number of keywords to 2-5 for a balanced result; 9) Choose the appropriate language based on the target content (e.g., use Chinese when searching for specific Chinese resources). For example: 'climate change report 2024 site:gov -opinion' or '\"machine learning algorithms\" tutorial (Python OR Julia)'",
       ),
     limit: z
       .number()
       .optional()
-      .describe("The number of search results to return (default: 10, recommended range: 1-20)"),
+      .describe(
+        "The number of search results to return (default: 10, recommended range: 1-20)",
+      ),
     timeout: z
       .number()
       .optional()
-      .describe("The timeout for the search operation in milliseconds (default: 30000, can be adjusted based on network conditions)"),
+      .describe(
+        "The timeout for the search operation in milliseconds (default: 30000, can be adjusted based on network conditions)",
+      ),
   },
   async (params) => {
     try {
@@ -46,7 +50,7 @@ server.tool(
       // Get the path to the state file in the user's home directory
       const stateFilePath = path.join(
         os.homedir(),
-        ".google-search-browser-state.json"
+        ".google-search-browser-state.json",
       );
       logger.info({ stateFilePath }, "Using state file path");
 
@@ -58,7 +62,7 @@ server.tool(
 
       if (!stateFileExists) {
         warningMessage =
-          "⚠️ Note: The browser state file does not exist. On first use, if human verification is encountered, the system will automatically switch to headed mode for you to complete the verification. After completion, the system will save the state file, and subsequent searches will be smoother.";
+          "⚠️ Note: The browser state file does not exist. On first use, if human verification is encountered, the system will automatically switch to interactive mode for you to complete the verification. After completion, the system will save the state file, and subsequent searches will be smoother.";
         logger.warn(warningMessage);
       }
 
@@ -70,7 +74,7 @@ server.tool(
           timeout: timeout,
           stateFile: stateFilePath,
         },
-        globalBrowser
+        globalBrowser,
       );
 
       // Build the return result, including the warning message
@@ -102,7 +106,7 @@ server.tool(
         ],
       };
     }
-  }
+  },
 );
 
 // Start the server
