@@ -1021,7 +1021,10 @@ export async function googleSearch(
         logger.info("Closing browser...");
         await browser.close();
       } else {
-        logger.info("Keeping browser instance open");
+        logger.info("Keeping browser instance open but close the context");
+        // Close the page and the context
+        await page.close();
+        await context.close();
       }
 
       // Return the search results
