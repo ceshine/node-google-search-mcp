@@ -556,6 +556,9 @@ export async function googleSearch(
 
       logger.info("Waiting for page to load...");
 
+      // Wait 2 seconds to ensure that the redirection to the recaptcha page is completed (if triggered)
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
       // Wait for the page to finish loading
       await page.waitForLoadState("networkidle", { timeout });
 
