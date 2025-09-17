@@ -1,5 +1,10 @@
 import { chromium, devices, BrowserContextOptions, Browser } from "playwright";
-import { SearchResponse, SearchResult, CommandOptions, HtmlResponse } from "./types.js";
+import {
+  SearchResponse,
+  SearchResult,
+  CommandOptions,
+  HtmlResponse,
+} from "./types.js";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -86,7 +91,7 @@ function getHostMachineConfig(userLocale?: string): FingerprintConfig {
   }
 
   // We are using Chrome
-  deviceName = "Desktop Chrome";
+  // deviceName = "Desktop Chrome";
 
   return {
     deviceName,
@@ -107,7 +112,7 @@ function getHostMachineConfig(userLocale?: string): FingerprintConfig {
 export async function googleSearch(
   query: string,
   options: CommandOptions = {},
-  existingBrowser?: Browser
+  existingBrowser?: Browser,
 ): Promise<SearchResponse> {
   // Set default options
   const {
@@ -133,7 +138,7 @@ export async function googleSearch(
   if (fs.existsSync(stateFile)) {
     logger.info(
       { stateFile },
-      "Browser state file found, will use saved browser state to avoid anti-bot detection"
+      "Browser state file found, will use saved browser state to avoid anti-bot detection",
     );
     storageState = stateFile;
 
@@ -144,13 +149,16 @@ export async function googleSearch(
         savedState = JSON.parse(fingerprintData);
         logger.info("Loaded saved browser fingerprint configuration");
       } catch (e) {
-        logger.warn({ error: e }, "Failed to load fingerprint configuration file, will create a new one");
+        logger.warn(
+          { error: e },
+          "Failed to load fingerprint configuration file, will create a new one",
+        );
       }
     }
   } else {
     logger.info(
       { stateFile },
-      "Browser state file not found, will create a new browser session and fingerprint"
+      "Browser state file not found, will create a new browser session and fingerprint",
     );
   }
 
@@ -215,7 +223,7 @@ export async function googleSearch(
     } else {
       logger.info(
         { headless },
-        `Preparing to launch browser in ${headless ? "headless" : "headed"} mode...`
+        `Preparing to launch browser in ${headless ? "headless" : "headed"} mode...`,
       );
 
       // Initialize the browser, adding more parameters to avoid detection
@@ -282,7 +290,7 @@ export async function googleSearch(
       if (hostConfig.deviceName !== deviceName) {
         logger.info(
           { deviceType: hostConfig.deviceName },
-          "Using device type based on host machine settings"
+          "Using device type based on host machine settings",
         );
         // Use the new device configuration
         contextOptions = { ...devices[hostConfig.deviceName] };
@@ -306,7 +314,7 @@ export async function googleSearch(
           colorScheme: hostConfig.colorScheme,
           deviceType: hostConfig.deviceName,
         },
-        "Generated new browser fingerprint configuration based on the host machine"
+        "Generated new browser fingerprint configuration based on the host machine",
       );
     }
 
@@ -325,7 +333,7 @@ export async function googleSearch(
     }
 
     const context = await browser.newContext(
-      storageState ? { ...contextOptions, storageState } : contextOptions
+      storageState ? { ...contextOptions, storageState } : contextOptions,
     );
 
     // Set additional browser properties to avoid detection
@@ -352,7 +360,7 @@ export async function googleSearch(
       if (typeof WebGLRenderingContext !== "undefined") {
         const getParameter = WebGLRenderingContext.prototype.getParameter;
         WebGLRenderingContext.prototype.getParameter = function (
-          parameter: number
+          parameter: number,
         ) {
           // Randomize UNMASKED_VENDOR_WEBGL and UNMASKED_RENDERER_WEBGL
           if (parameter === 37445) {
@@ -388,7 +396,10 @@ export async function googleSearch(
           googleDomains[Math.floor(Math.random() * googleDomains.length)];
         // Save the selected domain
         savedState.googleDomain = selectedDomain;
-        logger.info({ domain: selectedDomain }, "Randomly selected Google domain");
+        logger.info(
+          { domain: selectedDomain },
+          "Randomly selected Google domain",
+        );
       }
 
       logger.info("Navigating to Google search page...");
@@ -412,12 +423,14 @@ export async function googleSearch(
       const isBlockedPage = sorryPatterns.some(
         (pattern) =>
           currentUrl.includes(pattern) ||
-          (response && response.url().toString().includes(pattern))
+          (response && response.url().toString().includes(pattern)),
       );
 
       if (isBlockedPage) {
         if (headless) {
-          logger.warn("Human verification page detected, restarting browser in headed mode...");
+          logger.warn(
+            "Human verification page detected, restarting browser in headed mode...",
+          );
 
           // Close the current page and context
           await page.close();
@@ -426,7 +439,7 @@ export async function googleSearch(
           // If the browser was provided externally, do not close it, but create a new browser instance
           if (browserWasProvided) {
             logger.info(
-              "Encountered human verification with an external browser instance, creating a new browser instance..."
+              "Encountered human verification with an external browser instance, creating a new browser instance...",
             );
             // Create a new browser instance, no longer using the externally provided one
             const newBrowser = await chromium.launch({
@@ -486,14 +499,16 @@ export async function googleSearch(
             return performSearch(false); // Re-run the search in headed mode
           }
         } else {
-          logger.warn("Human verification page detected, please complete the verification in the browser...");
+          logger.warn(
+            "Human verification page detected, please complete the verification in the browser...",
+          );
           // Wait for the user to complete verification and be redirected back to the search page
           await page.waitForNavigation({
             timeout: timeout * 2,
             url: (url) => {
               const urlStr = url.toString();
               return sorryPatterns.every(
-                (pattern) => !urlStr.includes(pattern)
+                (pattern) => !urlStr.includes(pattern),
               );
             },
           });
@@ -546,13 +561,13 @@ export async function googleSearch(
       // Check if the URL after searching is redirected to a human verification page
       const searchUrl = page.url();
       const isBlockedAfterSearch = sorryPatterns.some((pattern) =>
-        searchUrl.includes(pattern)
+        searchUrl.includes(pattern),
       );
 
       if (isBlockedAfterSearch) {
         if (headless) {
           logger.warn(
-            "Human verification page detected after search, restarting browser in headed mode..."
+            "Human verification page detected after search, restarting browser in headed mode...",
           );
 
           // Close the current page and context
@@ -562,7 +577,7 @@ export async function googleSearch(
           // If the browser was provided externally, do not close it, but create a new browser instance
           if (browserWasProvided) {
             logger.info(
-              "Encountered human verification after search with an external browser instance, creating a new browser instance..."
+              "Encountered human verification after search with an external browser instance, creating a new browser instance...",
             );
             // Create a new browser instance, no longer using the externally provided one
             const newBrowser = await chromium.launch({
@@ -622,14 +637,16 @@ export async function googleSearch(
             return performSearch(false); // Re-run the search in headed mode
           }
         } else {
-          logger.warn("Human verification page detected after search, please complete the verification in the browser...");
+          logger.warn(
+            "Human verification page detected after search, please complete the verification in the browser...",
+          );
           // Wait for the user to complete verification and be redirected back to the search page
           await page.waitForNavigation({
             timeout: timeout * 2,
             url: (url) => {
               const urlStr = url.toString();
               return sorryPatterns.every(
-                (pattern) => !urlStr.includes(pattern)
+                (pattern) => !urlStr.includes(pattern),
               );
             },
           });
@@ -667,13 +684,13 @@ export async function googleSearch(
         // If search results are not found, check if redirected to a human verification page
         const currentUrl = page.url();
         const isBlockedDuringResults = sorryPatterns.some((pattern) =>
-          currentUrl.includes(pattern)
+          currentUrl.includes(pattern),
         );
 
         if (isBlockedDuringResults) {
           if (headless) {
             logger.warn(
-              "Human verification page detected while waiting for search results, restarting browser in headed mode..."
+              "Human verification page detected while waiting for search results, restarting browser in headed mode...",
             );
 
             // Close the current page and context
@@ -683,7 +700,7 @@ export async function googleSearch(
             // If the browser was provided externally, do not close it, but create a new browser instance
             if (browserWasProvided) {
               logger.info(
-                "Encountered human verification while waiting for search results with an external browser instance, creating a new browser instance..."
+                "Encountered human verification while waiting for search results with an external browser instance, creating a new browser instance...",
               );
               // Create a new browser instance, no longer using the externally provided one
               const newBrowser = await chromium.launch({
@@ -744,7 +761,7 @@ export async function googleSearch(
             }
           } else {
             logger.warn(
-              "Human verification page detected while waiting for search results, please complete the verification in the browser..."
+              "Human verification page detected while waiting for search results, please complete the verification in the browser...",
             );
             // Wait for the user to complete verification and be redirected back to the search page
             await page.waitForNavigation({
@@ -752,7 +769,7 @@ export async function googleSearch(
               url: (url) => {
                 const urlStr = url.toString();
                 return sorryPatterns.every(
-                  (pattern) => !urlStr.includes(pattern)
+                  (pattern) => !urlStr.includes(pattern),
                 );
               },
             });
@@ -762,7 +779,10 @@ export async function googleSearch(
             for (const selector of searchResultSelectors) {
               try {
                 await page.waitForSelector(selector, { timeout: timeout / 2 });
-                logger.info({ selector }, "Found search results after verification");
+                logger.info(
+                  { selector },
+                  "Found search results after verification",
+                );
                 resultsFound = true;
                 break;
               } catch (e) {
@@ -790,24 +810,41 @@ export async function googleSearch(
       let results: SearchResult[] = []; // Declare results before the evaluate call
 
       // Extract search results - using logic ported from google-search-extractor.cjs
-      results = await page.evaluate((maxResults: number): SearchResult[] => { // Add return type
+      results = await page.evaluate((maxResults: number): SearchResult[] => {
+        // Add return type
         const results: { title: string; link: string; snippet: string }[] = [];
         const seenUrls = new Set<string>(); // For deduplication
 
         // Define multiple sets of selectors, sorted by priority (refer to google-search-extractor.cjs)
         const selectorSets = [
-          { container: '#search div[data-hveid]', title: 'h3', snippet: '.VwiC3b' },
-          { container: '#rso div[data-hveid]', title: 'h3', snippet: '[data-sncf="1"]' },
-          { container: '.g', title: 'h3', snippet: 'div[style*="webkit-line-clamp"]' },
-          { container: 'div[jscontroller][data-hveid]', title: 'h3', snippet: 'div[role="text"]' }
+          {
+            container: "#search div[data-hveid]",
+            title: "h3",
+            snippet: ".VwiC3b",
+          },
+          {
+            container: "#rso div[data-hveid]",
+            title: "h3",
+            snippet: '[data-sncf="1"]',
+          },
+          {
+            container: ".g",
+            title: "h3",
+            snippet: 'div[style*="webkit-line-clamp"]',
+          },
+          {
+            container: "div[jscontroller][data-hveid]",
+            title: "h3",
+            snippet: 'div[role="text"]',
+          },
         ];
 
         // Alternative snippet selectors
         const alternativeSnippetSelectors = [
-          '.VwiC3b',
+          ".VwiC3b",
           '[data-sncf="1"]',
           'div[style*="webkit-line-clamp"]',
-          'div[role="text"]'
+          'div[role="text"]',
         ];
 
         // Try each set of selectors
@@ -825,19 +862,19 @@ export async function googleSearch(
             const title = (titleElement.textContent || "").trim();
 
             // Find the link
-            let link = '';
-            const linkInTitle = titleElement.querySelector('a');
+            let link = "";
+            const linkInTitle = titleElement.querySelector("a");
             if (linkInTitle) {
               link = linkInTitle.href;
             } else {
               let current: Element | null = titleElement;
-              while (current && current.tagName !== 'A') {
+              while (current && current.tagName !== "A") {
                 current = current.parentElement;
               }
               if (current && current instanceof HTMLAnchorElement) {
                 link = current.href;
               } else {
-                const containerLink = container.querySelector('a');
+                const containerLink = container.querySelector("a");
                 if (containerLink) {
                   link = containerLink.href;
                 }
@@ -845,10 +882,11 @@ export async function googleSearch(
             }
 
             // Filter invalid or duplicate links
-            if (!link || !link.startsWith('http') || seenUrls.has(link)) continue;
+            if (!link || !link.startsWith("http") || seenUrls.has(link))
+              continue;
 
             // Find the snippet
-            let snippet = '';
+            let snippet = "";
             const snippetElement = container.querySelector(selectors.snippet);
             if (snippetElement) {
               snippet = (snippetElement.textContent || "").trim();
@@ -864,9 +902,12 @@ export async function googleSearch(
 
               // If a snippet is still not found, try a generic method
               if (!snippet) {
-                const textNodes = Array.from(container.querySelectorAll('div')).filter(el =>
-                  !el.querySelector('h3') &&
-                  (el.textContent || "").trim().length > 20
+                const textNodes = Array.from(
+                  container.querySelectorAll("div"),
+                ).filter(
+                  (el) =>
+                    !el.querySelector("h3") &&
+                    (el.textContent || "").trim().length > 20,
                 );
                 if (textNodes.length > 0) {
                   snippet = (textNodes[0].textContent || "").trim();
@@ -881,48 +922,59 @@ export async function googleSearch(
             }
           }
         }
-        
+
         // If the main selectors did not find enough results, try a more generic method (as a supplement)
         if (results.length < maxResults) {
-            const anchorElements = Array.from(document.querySelectorAll("a[href^='http']"));
-            for (const el of anchorElements) {
-                if (results.length >= maxResults) break;
+          const anchorElements = Array.from(
+            document.querySelectorAll("a[href^='http']"),
+          );
+          for (const el of anchorElements) {
+            if (results.length >= maxResults) break;
 
-                // Check if el is an HTMLAnchorElement
-                if (!(el instanceof HTMLAnchorElement)) {
-                    continue;
-                }
-                const link = el.href;
-                // Filter out navigation links, image links, existing links, etc.
-                if (!link || seenUrls.has(link) || link.includes("google.com/") || link.includes("accounts.google") || link.includes("support.google")) {
-                    continue;
-                }
-
-                const title = (el.textContent || "").trim();
-                if (!title) continue; // Skip links without text content
-
-                // Try to get surrounding text as a snippet
-                let snippet = "";
-                let parent = el.parentElement;
-                for (let i = 0; i < 3 && parent; i++) {
-                  const text = (parent.textContent || "").trim();
-                  // Ensure the snippet text is different from the title and has a certain length
-                  if (text.length > 20 && text !== title) {
-                    snippet = text;
-                    break; // Stop searching upwards once a suitable snippet is found
-                  }
-                  parent = parent.parentElement;
-                }
-
-                results.push({ title, link, snippet });
-                seenUrls.add(link);
+            // Check if el is an HTMLAnchorElement
+            if (!(el instanceof HTMLAnchorElement)) {
+              continue;
             }
+            const link = el.href;
+            // Filter out navigation links, image links, existing links, etc.
+            if (
+              !link ||
+              seenUrls.has(link) ||
+              link.includes("google.com/") ||
+              link.includes("accounts.google") ||
+              link.includes("support.google")
+            ) {
+              continue;
+            }
+
+            const title = (el.textContent || "").trim();
+            if (!title) continue; // Skip links without text content
+
+            // Try to get surrounding text as a snippet
+            let snippet = "";
+            let parent = el.parentElement;
+            for (let i = 0; i < 3 && parent; i++) {
+              const text = (parent.textContent || "").trim();
+              // Ensure the snippet text is different from the title and has a certain length
+              if (text.length > 20 && text !== title) {
+                snippet = text;
+                break; // Stop searching upwards once a suitable snippet is found
+              }
+              parent = parent.parentElement;
+            }
+
+            results.push({ title, link, snippet });
+            seenUrls.add(link);
+          }
         }
 
         return results.slice(0, maxResults); // Ensure not to exceed the limit
       }, limit); // Pass limit to the evaluate function
 
-      logger.info({ count: results.length }, "Successfully retrieved search results");
+      logger.info(
+        { count: results.length },
+        "Successfully retrieved search results",
+      );
 
       try {
         // Save browser state (unless the user specified not to)
@@ -944,11 +996,14 @@ export async function googleSearch(
             fs.writeFileSync(
               fingerprintFile,
               JSON.stringify(savedState, null, 2),
-              "utf8"
+              "utf8",
             );
             logger.info({ fingerprintFile }, "Fingerprint configuration saved");
           } catch (fingerprintError) {
-            logger.error({ error: fingerprintError }, "Error saving fingerprint configuration");
+            logger.error(
+              { error: fingerprintError },
+              "Error saving fingerprint configuration",
+            );
           }
         } else {
           logger.info("Not saving browser state as per user settings");
@@ -988,11 +1043,14 @@ export async function googleSearch(
             fs.writeFileSync(
               fingerprintFile,
               JSON.stringify(savedState, null, 2),
-              "utf8"
+              "utf8",
             );
             logger.info({ fingerprintFile }, "Fingerprint configuration saved");
           } catch (fingerprintError) {
-            logger.error({ error: fingerprintError }, "Error saving fingerprint configuration");
+            logger.error(
+              { error: fingerprintError },
+              "Error saving fingerprint configuration",
+            );
           }
         }
       } catch (stateError) {
@@ -1009,18 +1067,18 @@ export async function googleSearch(
 
       // Return an error message or an empty result
       // logger.error has already logged the error, so here we return a mock result with the error message
-       return {
-         query,
-         results: [
-           {
-             title: "Search failed",
-             link: "",
-             snippet: `Could not complete the search, error message: ${
-               error instanceof Error ? error.message : String(error)
-             }`,
-           },
-         ],
-       };
+      return {
+        query,
+        results: [
+          {
+            title: "Search failed",
+            link: "",
+            snippet: `Could not complete the search, error message: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          },
+        ],
+      };
     }
     // The finally block has been removed because resource cleanup is already handled in the try and catch blocks
   }
@@ -1041,7 +1099,7 @@ export async function getGoogleSearchPageHtml(
   query: string,
   options: CommandOptions = {},
   saveToFile: boolean = false,
-  outputPath?: string
+  outputPath?: string,
 ): Promise<HtmlResponse> {
   // Set default options, consistent with googleSearch
   const {
@@ -1067,7 +1125,7 @@ export async function getGoogleSearchPageHtml(
   if (fs.existsSync(stateFile)) {
     logger.info(
       { stateFile },
-      "Browser state file found, will use saved browser state to avoid anti-bot detection"
+      "Browser state file found, will use saved browser state to avoid anti-bot detection",
     );
     storageState = stateFile;
 
@@ -1078,13 +1136,16 @@ export async function getGoogleSearchPageHtml(
         savedState = JSON.parse(fingerprintData);
         logger.info("Loaded saved browser fingerprint configuration");
       } catch (e) {
-        logger.warn({ error: e }, "Failed to load fingerprint configuration file, will create a new one");
+        logger.warn(
+          { error: e },
+          "Failed to load fingerprint configuration file, will create a new one",
+        );
       }
     }
   } else {
     logger.info(
       { stateFile },
-      "Browser state file not found, will create a new browser session and fingerprint"
+      "Browser state file not found, will create a new browser session and fingerprint",
     );
   }
 
@@ -1129,9 +1190,11 @@ export async function getGoogleSearchPageHtml(
   };
 
   // Define a dedicated function to get the HTML
-  async function performSearchAndGetHtml(headless: boolean): Promise<HtmlResponse> {
+  async function performSearchAndGetHtml(
+    headless: boolean,
+  ): Promise<HtmlResponse> {
     let browser: Browser;
-    
+
     // Initialize the browser, adding more parameters to avoid detection
     browser = await chromium.launch({
       headless,
@@ -1195,7 +1258,7 @@ export async function getGoogleSearchPageHtml(
       if (hostConfig.deviceName !== deviceName) {
         logger.info(
           { deviceType: hostConfig.deviceName },
-          "Using device type based on host machine settings"
+          "Using device type based on host machine settings",
         );
         // Use the new device configuration
         contextOptions = { ...devices[hostConfig.deviceName] };
@@ -1219,7 +1282,7 @@ export async function getGoogleSearchPageHtml(
           colorScheme: hostConfig.colorScheme,
           deviceType: hostConfig.deviceName,
         },
-        "Generated new browser fingerprint configuration based on the host machine"
+        "Generated new browser fingerprint configuration based on the host machine",
       );
     }
 
@@ -1238,7 +1301,7 @@ export async function getGoogleSearchPageHtml(
     }
 
     const context = await browser.newContext(
-      storageState ? { ...contextOptions, storageState } : contextOptions
+      storageState ? { ...contextOptions, storageState } : contextOptions,
     );
 
     // Set additional browser properties to avoid detection
@@ -1265,7 +1328,7 @@ export async function getGoogleSearchPageHtml(
       if (typeof WebGLRenderingContext !== "undefined") {
         const getParameter = WebGLRenderingContext.prototype.getParameter;
         WebGLRenderingContext.prototype.getParameter = function (
-          parameter: number
+          parameter: number,
         ) {
           // Randomize UNMASKED_VENDOR_WEBGL and UNMASKED_RENDERER_WEBGL
           if (parameter === 37445) {
@@ -1301,7 +1364,10 @@ export async function getGoogleSearchPageHtml(
           googleDomains[Math.floor(Math.random() * googleDomains.length)];
         // Save the selected domain
         savedState.googleDomain = selectedDomain;
-        logger.info({ domain: selectedDomain }, "Randomly selected Google domain");
+        logger.info(
+          { domain: selectedDomain },
+          "Randomly selected Google domain",
+        );
       }
 
       logger.info("Navigating to Google search page...");
@@ -1325,29 +1391,33 @@ export async function getGoogleSearchPageHtml(
       const isBlockedPage = sorryPatterns.some(
         (pattern) =>
           currentUrl.includes(pattern) ||
-          (response && response.url().toString().includes(pattern))
+          (response && response.url().toString().includes(pattern)),
       );
 
       if (isBlockedPage) {
         if (headless) {
-          logger.warn("Human verification page detected, restarting browser in headed mode...");
+          logger.warn(
+            "Human verification page detected, restarting browser in headed mode...",
+          );
 
           // Close the current page and context
           await page.close();
           await context.close();
           await browser.close();
-          
+
           // Re-run in headed mode
           return performSearchAndGetHtml(false);
         } else {
-          logger.warn("Human verification page detected, please complete the verification in the browser...");
+          logger.warn(
+            "Human verification page detected, please complete the verification in the browser...",
+          );
           // Wait for the user to complete verification and be redirected back to the search page
           await page.waitForNavigation({
             timeout: timeout * 2,
             url: (url) => {
               const urlStr = url.toString();
               return sorryPatterns.every(
-                (pattern) => !urlStr.includes(pattern)
+                (pattern) => !urlStr.includes(pattern),
               );
             },
           });
@@ -1400,29 +1470,33 @@ export async function getGoogleSearchPageHtml(
       // Check if the URL after searching is redirected to a human verification page
       const searchUrl = page.url();
       const isBlockedAfterSearch = sorryPatterns.some((pattern) =>
-        searchUrl.includes(pattern)
+        searchUrl.includes(pattern),
       );
 
       if (isBlockedAfterSearch) {
         if (headless) {
-          logger.warn("Human verification page detected after search, restarting browser in headed mode...");
+          logger.warn(
+            "Human verification page detected after search, restarting browser in headed mode...",
+          );
 
           // Close the current page and context
           await page.close();
           await context.close();
           await browser.close();
-          
+
           // Re-run in headed mode
           return performSearchAndGetHtml(false);
         } else {
-          logger.warn("Human verification page detected after search, please complete the verification in the browser...");
+          logger.warn(
+            "Human verification page detected after search, please complete the verification in the browser...",
+          );
           // Wait for the user to complete verification and be redirected back to the search page
           await page.waitForNavigation({
             timeout: timeout * 2,
             url: (url) => {
               const urlStr = url.toString();
               return sorryPatterns.every(
-                (pattern) => !urlStr.includes(pattern)
+                (pattern) => !urlStr.includes(pattern),
               );
             },
           });
@@ -1435,35 +1509,47 @@ export async function getGoogleSearchPageHtml(
 
       // Get the current page URL
       const finalUrl = page.url();
-      logger.info({ url: finalUrl }, "Search results page loaded, preparing to extract HTML...");
+      logger.info(
+        { url: finalUrl },
+        "Search results page loaded, preparing to extract HTML...",
+      );
 
       // Add extra wait time to ensure the page is fully loaded and stable
       logger.info("Waiting for page to stabilize...");
       await page.waitForTimeout(1000); // Wait for 1 second to let the page fully stabilize
-      
+
       // Wait for network to be idle again to ensure all async operations are complete
       await page.waitForLoadState("networkidle", { timeout });
-      
+
       // Get the page HTML content
       const fullHtml = await page.content();
-      
+
       // Remove CSS and JavaScript content, keeping only pure HTML
       // Remove all <style> tags and their content
-      let html = fullHtml.replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '');
+      let html = fullHtml.replace(
+        /<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi,
+        "",
+      );
       // Remove all <link rel="stylesheet"> tags
-      html = html.replace(/<link\s+[^>]*rel=["']stylesheet["'][^>]*>/gi, '');
+      html = html.replace(/<link\s+[^>]*rel=["']stylesheet["'][^>]*>/gi, "");
       // Remove all <script> tags and their content
-      html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
-      
-      logger.info({
-        originalLength: fullHtml.length,
-        cleanedLength: html.length
-      }, "Successfully retrieved and cleaned page HTML content");
+      html = html.replace(
+        /<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi,
+        "",
+      );
+
+      logger.info(
+        {
+          originalLength: fullHtml.length,
+          cleanedLength: html.length,
+        },
+        "Successfully retrieved and cleaned page HTML content",
+      );
 
       // If needed, save the HTML to a file and take a screenshot
       let savedFilePath: string | undefined = undefined;
       let screenshotPath: string | undefined = undefined;
-      
+
       if (saveToFile) {
         // Generate a default filename (if not provided)
         if (!outputPath) {
@@ -1472,10 +1558,15 @@ export async function getGoogleSearchPageHtml(
           if (!fs.existsSync(outputDir)) {
             fs.mkdirSync(outputDir, { recursive: true });
           }
-          
+
           // Generate filename: query-timestamp.html
-          const timestamp = new Date().toISOString().replace(/:/g, "-").replace(/\./g, "-");
-          const sanitizedQuery = query.replace(/[^a-zA-Z0-9]/g, "_").substring(0, 50);
+          const timestamp = new Date()
+            .toISOString()
+            .replace(/:/g, "-")
+            .replace(/\./g, "-");
+          const sanitizedQuery = query
+            .replace(/[^a-zA-Z0-9]/g, "_")
+            .substring(0, 50);
           outputPath = `${outputDir}/${sanitizedQuery}-${timestamp}.html`;
         }
 
@@ -1488,21 +1579,27 @@ export async function getGoogleSearchPageHtml(
         // Write the HTML file
         fs.writeFileSync(outputPath, html, "utf8");
         savedFilePath = outputPath;
-        logger.info({ path: outputPath }, "Cleaned HTML content has been saved to file");
-        
+        logger.info(
+          { path: outputPath },
+          "Cleaned HTML content has been saved to file",
+        );
+
         // Save a screenshot of the web page
         // Generate screenshot filename (based on the HTML filename, but with a .png extension)
-        const screenshotFilePath = outputPath.replace(/\.html$/, '.png');
-        
+        const screenshotFilePath = outputPath.replace(/\.html$/, ".png");
+
         // Take a screenshot of the entire page
         logger.info("Taking a screenshot of the web page...");
         await page.screenshot({
           path: screenshotFilePath,
-          fullPage: true
+          fullPage: true,
         });
-        
+
         screenshotPath = screenshotFilePath;
-        logger.info({ path: screenshotFilePath }, "Web page screenshot has been saved");
+        logger.info(
+          { path: screenshotFilePath },
+          "Web page screenshot has been saved",
+        );
       }
 
       try {
@@ -1525,11 +1622,14 @@ export async function getGoogleSearchPageHtml(
             fs.writeFileSync(
               fingerprintFile,
               JSON.stringify(savedState, null, 2),
-              "utf8"
+              "utf8",
             );
             logger.info({ fingerprintFile }, "Fingerprint configuration saved");
           } catch (fingerprintError) {
-            logger.error({ error: fingerprintError }, "Error saving fingerprint configuration");
+            logger.error(
+              { error: fingerprintError },
+              "Error saving fingerprint configuration",
+            );
           }
         } else {
           logger.info("Not saving browser state as per user settings");
@@ -1549,7 +1649,7 @@ export async function getGoogleSearchPageHtml(
         url: finalUrl,
         savedPath: savedFilePath,
         screenshotPath: screenshotPath,
-        originalHtmlLength: fullHtml.length
+        originalHtmlLength: fullHtml.length,
       };
     } catch (error) {
       logger.error({ error }, "An error occurred while getting the page HTML");
@@ -1569,11 +1669,14 @@ export async function getGoogleSearchPageHtml(
             fs.writeFileSync(
               fingerprintFile,
               JSON.stringify(savedState, null, 2),
-              "utf8"
+              "utf8",
             );
             logger.info({ fingerprintFile }, "Fingerprint configuration saved");
           } catch (fingerprintError) {
-            logger.error({ error: fingerprintError }, "Error saving fingerprint configuration");
+            logger.error(
+              { error: fingerprintError },
+              "Error saving fingerprint configuration",
+            );
           }
         }
       } catch (stateError) {
@@ -1585,7 +1688,9 @@ export async function getGoogleSearchPageHtml(
       await browser.close();
 
       // Return an error message
-      throw new Error(`Failed to get Google search page HTML: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get Google search page HTML: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
