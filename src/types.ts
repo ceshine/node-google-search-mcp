@@ -31,9 +31,9 @@ export interface CommandOptions {
  * HTML response interface - for getting the raw search page HTML
  */
 export interface HtmlResponse {
-  query: string;    // The search query
-  html: string;     // The page's HTML content (cleaned, without CSS and JavaScript)
-  url: string;      // The URL of the search results page
+  query: string; // The search query
+  html: string; // The page's HTML content (cleaned, without CSS and JavaScript)
+  url: string; // The URL of the search results page
   savedPath?: string; // Optional, the path where the HTML is saved if it is saved to a file
   screenshotPath?: string; // Optional, the path where the web page screenshot is saved
   originalHtmlLength?: number; // Original HTML length (including CSS and JavaScript)

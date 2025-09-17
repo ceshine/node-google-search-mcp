@@ -121,10 +121,11 @@ export async function googleSearch(
     stateFile = "./browser-state.json",
     noSaveState = false,
     locale = "en-US", // Default to English
+    headless = true,
   } = options;
 
   // Ignore the incoming headless parameter and always start in headless mode
-  let useHeadless = true;
+  let useHeadless = headless;
 
   logger.info({ options }, "Initializing browser...");
 
