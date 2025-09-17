@@ -229,6 +229,25 @@ Note: For the second method, you must replace `C:/your/path/to/google-search` wi
 
 After integration, you can use the search function directly in Claude, such as "Search for the latest AI research".
 
+### Running the MCP server without the global installation
+
+```json
+{
+  "mcpServers": {
+    "google-search": {
+      "command": "npm",
+      "args": [
+        "--prefix",
+        "/path/to/the/mcp/codebase/",
+        "run",
+        "mcp:build"
+      ],
+      "env": {}
+    }
+  }
+}
+```
+
 ## Project Structure
 
 ```
