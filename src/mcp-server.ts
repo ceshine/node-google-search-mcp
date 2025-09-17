@@ -3,7 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { googleSearch, getGoogleSearchPageHtml } from "./search.js";
+import { googleSearch } from "./search.js";
 import * as os from "os";
 import * as path from "path";
 import * as fs from "fs";
@@ -73,6 +73,7 @@ server.tool(
           limit: limit,
           timeout: timeout,
           stateFile: stateFilePath,
+          headless: false,
         },
         globalBrowser,
       );
@@ -117,7 +118,7 @@ async function main() {
     // Initialize the global browser instance
     logger.info("Initializing global browser instance...");
     globalBrowser = await chromium.launch({
-      headless: true,
+      headless: false,
       args: [
         "--disable-blink-features=AutomationControlled",
         "--disable-features=IsolateOrigins,site-per-process",
