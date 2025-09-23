@@ -118,7 +118,7 @@ async function main() {
     // Initialize the global browser instance
     logger.info("Initializing global browser instance...");
     globalBrowser = await chromium.launch({
-      headless: false,
+      headless: true,
       args: [
         "--disable-blink-features=AutomationControlled",
         "--disable-features=IsolateOrigins,site-per-process",
