@@ -91,7 +91,7 @@ function getHostMachineConfig(userLocale?: string): FingerprintConfig {
   }
 
   // We are using Chrome
-  // deviceName = "Desktop Chrome";
+  deviceName = "Desktop Chrome";
 
   return {
     deviceName,
