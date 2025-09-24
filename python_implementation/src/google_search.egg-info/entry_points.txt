@@ -1,0 +1,3 @@
+[console_scripts]
+google-search = google_search_server.cli:main
+google-search-server = google_search_server.main:mcp.run

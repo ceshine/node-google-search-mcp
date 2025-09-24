@@ -1,7 +1,11 @@
 import asyncio
 import json
+import logging
 import os
 import random
+import re
+import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -11,246 +15,232 @@ from playwright.async_api import (
     BrowserContext,
     Page,
     Playwright,
+    Error,
     async_playwright,
 )
 
+# --- Logger Setup ---
+log_dir = Path(os.path.join(os.path.expanduser("~"), ".google-search-logs"))
+log_dir.mkdir(parents=True, exist_ok=True)
+log_file_path = log_dir / "google-search.log"
+
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+handler = logging.FileHandler(log_file_path)
+handler.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
+
+# --- Constants ---
 DEFAULT_TIMEOUT = 60000
+SORRY_PATTERNS = [
+    "google.com/sorry/index",
+    "google.com/sorry",
+    "recaptcha",
+    "captcha",
+    "unusual traffic",
+]
+GOOGLE_DOMAINS = [
+    "https://www.google.com",
+    "https://www.google.co.uk",
+    "https://www.google.ca",
+    "https://www.google.com.au",
+]
+SEARCH_RESULT_SELECTORS = [
+    "#search",
+    "#rso",
+    ".g",
+    "[data-sokoban-container]",
+    "div[role='main']",
+]
+SEARCH_INPUT_SELECTORS = [
+    "textarea[name='q']",
+    "input[name='q']",
+    "textarea[title='Search']",
+    "input[title='Search']",
+    "textarea[aria-label='Search']",
+    "input[aria-label='Search']",
+    "textarea",
+]
 
+# --- Helper Functions ---
 
-class GoogleSearch:
-    def __init__(
-        self,
-        playwright: Playwright,
-        browser: Browser,
-        state_file: Path = Path("./browser-state.json"),
-        no_save_state: bool = False,
-        locale: str = "en-US",
-        headless: bool = True,
-    ):
-        self.playwright = playwright
-        self.browser = browser
-        self.state_file = state_file
-        self.no_save_state = no_save_state
-        self.locale = locale
-        self.headless = headless
-        self.fingerprint_file = self.state_file.with_name(
-            f"{self.state_file.stem}-fingerprint.json"
-        )
-        self.saved_state: Dict[str, Any] = {}
+def get_host_machine_config(locale: str = "en-US") -> Dict[str, Any]:
+    platform = sys.platform
+    if platform == "darwin":
+        device_name = "Desktop Safari"
+    elif platform == "win32":
+        device_name = "Desktop Edge"
+    else:
+        device_name = "Desktop Firefox"
 
-    async def search(
-        self,
-        query: str,
-        limit: int = 10,
-        timeout: int = DEFAULT_TIMEOUT,
-    ) -> Dict[str, Any]:
-        page = None
-        context = None
-        try:
-            context, page = await self._create_page(timeout)
+    return {
+        "deviceName": device_name,
+        "locale": locale,
+        "timezoneId": "America/New_York",
+        "colorScheme": "dark" if datetime.now().hour >= 19 or datetime.now().hour < 7 else "light",
+        "reducedMotion": "no-preference",
+        "forcedColors": "none",
+    }
 
-            await page.goto("https://www.google.com", timeout=timeout)
+def get_random_delay(min_val: int, max_val: int) -> int:
+    return random.randint(min_val, max_val)
 
-            # Wait for the search box to appear
-            search_input = await self._find_search_box(page)
-            if not search_input:
-                raise Exception("Could not find search box")
+async def _create_browser_context(
+    p: Playwright,
+    browser: Browser,
+    state_file: Path,
+    locale: str,
+) -> Tuple[BrowserContext, Dict[str, Any]]:
+    storage_state = str(state_file) if state_file.exists() else None
+    saved_state = {}
+    fingerprint_file = state_file.with_suffix(".json-fingerprint.json")
+    if fingerprint_file.exists():
+        with open(fingerprint_file, "r") as f:
+            saved_state = json.load(f)
 
-            await search_input.type(query, delay=random.randint(10, 30))
-            await asyncio.sleep(random.uniform(0.1, 0.3))
-            await page.keyboard.press("Enter")
+    device_list = ["Desktop Chrome", "Desktop Edge", "Desktop Firefox", "Desktop Safari"]
 
-            await page.wait_for_load_state("networkidle", timeout=timeout)
+    device_name = saved_state.get("fingerprint", {}).get("deviceName")
+    if not device_name or device_name not in p.devices:
+        device_name = random.choice(device_list)
 
-            results = await self._extract_results(page, limit)
+    device_config = p.devices[device_name]
+    context_options = {**device_config}
 
-            return {"query": query, "results": results}
-        finally:
-            if page:
-                await page.close()
-            if context:
-                await context.storage_state(path=self.state_file)
-                await context.close()
+    if "fingerprint" in saved_state:
+        context_options.update({
+            "locale": saved_state["fingerprint"]["locale"],
+            "timezone_id": saved_state["fingerprint"]["timezoneId"],
+            "color_scheme": saved_state["fingerprint"]["colorScheme"],
+        })
+    else:
+        host_config = get_host_machine_config(locale)
+        context_options.update({
+            "locale": host_config["locale"],
+            "timezone_id": host_config["timezoneId"],
+            "color_scheme": host_config["colorScheme"],
+        })
+        saved_state["fingerprint"] = host_config
 
-    async def _create_page(self, timeout: int) -> Tuple[BrowserContext, Page]:
-        storage_state = self.state_file if self.state_file.exists() else None
-        if self.fingerprint_file.exists():
-            with open(self.fingerprint_file, "r") as f:
-                self.saved_state = json.load(f)
+    context_options.update({
+        "viewport": {"width": 1920, "height": 1080},
+        "permissions": ["geolocation", "notifications"],
+        "accept_downloads": True,
+        "is_mobile": False,
+        "has_touch": False,
+        "java_script_enabled": True,
+    })
 
-        device_name, device_config = self._get_device_config()
+    if storage_state:
+        context_options["storage_state"] = storage_state
 
-        context_options: Dict[str, Any] = {
-            **device_config,
-        }
+    context = await browser.new_context(**context_options)
 
-        if self.saved_state.get("fingerprint"):
-            context_options.update(
-                {
-                    "locale": self.saved_state["fingerprint"]["locale"],
-                    "timezone_id": self.saved_state["fingerprint"]["timezoneId"],
-                    "color_scheme": self.saved_state["fingerprint"]["colorScheme"],
-                    "reduced_motion": self.saved_state["fingerprint"]["reducedMotion"],
-                    "forced_colors": self.saved_state["fingerprint"]["forcedColors"],
-                }
-            )
-        else:
-            host_config = self._get_host_machine_config()
-            if host_config["deviceName"] != device_name:
-                device_name, device_config = self._get_device_config(
-                    host_config["deviceName"]
-                )
-                context_options.update(device_config)
-
-            context_options.update(
-                {
-                    "locale": host_config["locale"],
-                    "timezone_id": host_config["timezoneId"],
-                    "color_scheme": host_config["colorScheme"],
-                    "reduced_motion": host_config["reducedMotion"],
-                    "forced_colors": host_config["forcedColors"],
-                }
-            )
-            self.saved_state["fingerprint"] = host_config
-
-        context_options.update(
-            {
-                "permissions": ["geolocation", "notifications"],
-                "accept_downloads": True,
-                "is_mobile": False,
-                "has_touch": False,
-                "java_script_enabled": True,
-            }
-        )
-
-        if storage_state:
-            context_options["storage_state"] = storage_state
-
-        context = await self.browser.new_context(**context_options)
-
-        await context.add_init_script(
-            """
-            Object.defineProperty(navigator, 'webdriver', { get: () => false });
-            Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-            Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-            window.chrome = { runtime: {}, loadTimes: function() {}, csi: function() {}, app: {} };
-            if (typeof WebGLRenderingContext !== 'undefined') {
-                const getParameter = WebGLRenderingContext.prototype.getParameter;
-                WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                    if (parameter === 37445) { return 'Intel Inc.'; }
-                    if (parameter === 37446) { return 'Intel Iris OpenGL Engine'; }
-                    return getParameter.call(this, parameter);
-                };
-            }
+    await context.add_init_script(
         """
-        )
-
-        page = await context.new_page()
-
-        await page.add_init_script(
-            """
-            Object.defineProperty(window.screen, 'width', { get: () => 1920 });
-            Object.defineProperty(window.screen, 'height', { get: () => 1080 });
-            Object.defineProperty(window.screen, 'colorDepth', { get: () => 24 });
-            Object.defineProperty(window.screen, 'pixelDepth', { get: () => 24 });
-        """
-        )
-
-        return context, page
-
-    def _get_device_config(
-        self, device_name: Optional[str] = None
-    ) -> Tuple[str, Dict[str, Any]]:
-        device_list = [
-            "Desktop Chrome",
-            "Desktop Edge",
-            "Desktop Firefox",
-            "Desktop Safari",
-        ]
-        if (
-            device_name is None
-            and self.saved_state.get("fingerprint")
-            and self.saved_state["fingerprint"]["deviceName"] in self.playwright.devices
-        ):
-            device_name = self.saved_state["fingerprint"]["deviceName"]
-        elif device_name is None:
-            device_name = random.choice(device_list)
-
-        return device_name, self.playwright.devices[device_name]
-
-    def _get_host_machine_config(self) -> Dict[str, Any]:
-        # This is a simplified version of the TypeScript implementation
-        # as getting the real host machine config is more complex in Python.
-        return {
-            "deviceName": "Desktop Chrome",
-            "locale": self.locale,
-            "timezoneId": "America/New_York",
-            "colorScheme": "dark",
-            "reducedMotion": "no-preference",
-            "forcedColors": "none",
+        Object.defineProperty(navigator, 'webdriver', { get: () => false });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+        window.chrome = { runtime: {}, loadTimes: function() {}, csi: function() {}, app: {} };
+        if (typeof WebGLRenderingContext !== 'undefined') {
+            const getParameter = WebGLRenderingContext.prototype.getParameter;
+            WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                if (parameter === 37445) { return 'Intel Inc.'; }
+                if (parameter === 37446) { return 'Intel Iris OpenGL Engine'; }
+                return getParameter.call(this, parameter);
+            };
         }
+        """
+    )
+    return context, saved_state
 
-    async def _find_search_box(self, page: Page):
-        search_input_selectors = [
-            "textarea[name='q']",
-            "input[name='q']",
-            "textarea[title='Search']",
-            "input[title='Search']",
-            "textarea[aria-label='Search']",
-            "input[aria-label='Search']",
-            "textarea",
-        ]
-        for selector in search_input_selectors:
-            element = await page.query_selector(selector)
-            if element:
-                return element
-        return None
+async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state: Dict) -> None:
+    selected_domain = saved_state.get("googleDomain")
+    if not selected_domain:
+        selected_domain = random.choice(GOOGLE_DOMAINS)
+        saved_state["googleDomain"] = selected_domain
 
-    async def _extract_results(self, page: Page, limit: int) -> List[Dict[str, str]]:
-        html = await page.content()
-        soup = BeautifulSoup(html, "html.parser")
-        results = []
-        seen_urls = set()
+    logger.info(f"Navigating to {selected_domain}")
+    await page.goto(selected_domain, timeout=timeout, wait_until="networkidle")
+    logger.info(f"Navigated to {page.url}")
 
-        selector_sets = [
-            {"container": "#search div[data-hveid]", "title": "h3", "snippet": ".VwiC3b"},
-            {"container": "#rso div[data-hveid]", "title": "h3", "snippet": '[data-sncf="1"]'},
-            {"container": ".g", "title": "h3", "snippet": 'div[style*="webkit-line-clamp"]'},
-            {
-                "container": "div[jscontroller][data-hveid]",
-                "title": "h3",
-                "snippet": 'div[role="text"]',
-            },
-        ]
+    if any(pattern in page.url for pattern in SORRY_PATTERNS):
+        logger.warning("Human verification page detected on initial navigation.")
+        raise Error("Human verification page detected.")
 
-        for selectors in selector_sets:
-            if len(results) >= limit:
-                break
-            containers = soup.select(selectors["container"])
-            for container in containers:
-                if len(results) >= limit:
-                    break
+    search_input = None
+    for selector in SEARCH_INPUT_SELECTORS:
+        search_input = await page.query_selector(selector)
+        if search_input:
+            break
 
-                title_element = container.select_one(selectors["title"])
-                if not title_element:
-                    continue
+    if not search_input:
+        raise Error("Could not find search box.")
 
-                title = title_element.get_text(strip=True)
-                link_element = title_element.find("a")
-                link = link_element["href"] if link_element else ""
+    await search_input.click()
+    await page.keyboard.type(query, delay=get_random_delay(10, 30))
+    await asyncio.sleep(get_random_delay(100, 300) / 1000)
+    async with page.expect_navigation(wait_until="networkidle", timeout=timeout):
+        await page.keyboard.press("Enter")
 
-                if not link or not link.startswith("http") or link in seen_urls:
-                    continue
+    if any(pattern in page.url for pattern in SORRY_PATTERNS):
+        raise Error("Human verification page detected after search.")
 
-                snippet_element = container.select_one(selectors["snippet"])
-                snippet = snippet_element.get_text(strip=True) if snippet_element else ""
+    results_found = False
+    for selector in SEARCH_RESULT_SELECTORS:
+        if await page.query_selector(selector):
+            results_found = True
+            break
 
-                if title and link:
-                    results.append({"title": title, "link": link, "snippet": snippet})
-                    seen_urls.add(link)
+    if not results_found:
+        raise Error("Could not find search results element.")
 
-        return results
+async def _extract_results(page: Page, limit: int) -> List[Dict[str, str]]:
+    results = await page.evaluate(
+        """(limit) => {
+            const results = [];
+            const seenUrls = new Set();
+            const selectorSets = [
+                { container: '#search div[data-hveid]', title: 'h3', snippet: '.VwiC3b' },
+                { container: '#rso div[data-hveid]', title: 'h3', snippet: '[data-sncf="1"]' },
+                { container: '.g', title: 'h3', snippet: 'div[style*="webkit-line-clamp"]' },
+                { container: 'div[jscontroller][data-hveid]', title: 'h3', snippet: 'div[role="text"]' },
+            ];
 
+            for (const selectors of selectorSets) {
+                if (results.length >= limit) break;
+                const containers = document.querySelectorAll(selectors.container);
+                for (const container of containers) {
+                    if (results.length >= limit) break;
+                    const titleElement = container.querySelector(selectors.title);
+                    if (!titleElement) continue;
+                    const title = titleElement.textContent.trim();
+                    const linkElement = titleElement.closest('a');
+                    const link = linkElement ? linkElement.href : '';
+                    if (!link || !link.startsWith('http') || seenUrls.has(link)) continue;
+
+                    let snippet = '';
+                    const snippetElement = container.querySelector(selectors.snippet);
+                    if (snippetElement) {
+                        snippet = snippetElement.textContent.trim();
+                    }
+
+                    if (title && link) {
+                        results.push({ title, link, snippet });
+                        seenUrls.add(link);
+                    }
+                }
+            }
+            return results.slice(0, limit);
+        }""",
+        limit,
+    )
+    return results
+
+# --- Main Functions ---
 
 async def google_search(
     query: str,
@@ -260,18 +250,175 @@ async def google_search(
     no_save_state: bool = False,
     locale: str = "en-US",
     headless: bool = True,
+    **kwargs,
 ) -> Dict[str, Any]:
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=headless)
-        searcher = GoogleSearch(
-            p,
-            browser,
-            Path(state_file),
-            no_save_state,
-            locale,
-            headless,
+
+    async def perform_search(p: Playwright, headless_mode: bool) -> Dict[str, Any]:
+        browser = await p.chromium.launch(
+            headless=headless_mode,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-site-isolation-trials",
+                "--disable-web-security",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--no-first-run",
+                "--no-zygote",
+                "--disable-gpu",
+                "--hide-scrollbars",
+                "--mute-audio",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-breakpad",
+                "--disable-component-extensions-with-background-pages",
+                "--disable-extensions",
+                "--disable-features=TranslateUI",
+                "--disable-ipc-flooding-protection",
+                "--disable-renderer-backgrounding",
+                "--enable-features=NetworkService,NetworkServiceInProcess",
+                "--force-color-profile=srgb",
+                "--metrics-recording-only",
+            ],
+            ignore_default_args=["--enable-automation"],
         )
+        context = None
         try:
-            return await searcher.search(query, limit, timeout)
+            state_file_path = Path(state_file)
+            context, saved_state = await _create_browser_context(p, browser, state_file_path, locale)
+            page = await context.new_page()
+
+            await _navigate_and_search(page, query, timeout, saved_state)
+            results = await _extract_results(page, limit)
+
+            if not no_save_state:
+                await context.storage_state(path=str(state_file_path))
+                fingerprint_file = state_file_path.with_suffix(".json-fingerprint.json")
+                with open(fingerprint_file, "w") as f:
+                    json.dump(saved_state, f, indent=2)
+
+            return {"query": query, "results": results}
+
+        except Error as e:
+            if "Human verification" in str(e) and headless_mode:
+                logger.warning("Human verification detected, restarting in headed mode.")
+                await browser.close()
+                return await perform_search(p, False)
+            else:
+                logger.error(f"An error occurred during search: {e}")
+                return {"query": query, "results": [], "error": str(e)}
         finally:
-            await browser.close()
+            if context: await context.close()
+            if browser: await browser.close()
+
+    async with async_playwright() as p:
+        return await perform_search(p, headless)
+
+
+async def get_google_search_page_html(
+    query: str,
+    options: Dict[str, Any],
+    save_to_file: bool = False,
+    output_path: Optional[str] = None,
+) -> Dict[str, Any]:
+
+    timeout = options.get("timeout", DEFAULT_TIMEOUT)
+    state_file = options.get("state_file", "./browser-state.json")
+    no_save_state = options.get("no_save_state", False)
+    locale = options.get("locale", "en-US")
+    headless = not options.get("no_headless", False)
+
+    async def perform_search_and_get_html(p: Playwright, headless_mode: bool, output_path: Optional[str]) -> Dict[str, Any]:
+        browser = await p.chromium.launch(
+            headless=headless_mode,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--disable-features=IsolateOrigins,site-per-process",
+                "--disable-site-isolation-trials",
+                "--disable-web-security",
+                "--no-sandbox",
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-accelerated-2d-canvas",
+                "--no-first-run",
+                "--no-zygote",
+                "--disable-gpu",
+                "--hide-scrollbars",
+                "--mute-audio",
+                "--disable-background-networking",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-breakpad",
+                "--disable-component-extensions-with-background-pages",
+                "--disable-extensions",
+                "--disable-features=TranslateUI",
+                "--disable-ipc-flooding-protection",
+                "--disable-renderer-backgrounding",
+                "--enable-features=NetworkService,NetworkServiceInProcess",
+                "--force-color-profile=srgb",
+                "--metrics-recording-only",
+            ],
+            ignore_default_args=["--enable-automation"],
+        )
+        context = None
+        try:
+            state_file_path = Path(state_file)
+            context, saved_state = await _create_browser_context(p, browser, state_file_path, locale)
+            page = await context.new_page()
+
+            await _navigate_and_search(page, query, timeout, saved_state)
+
+            full_html = await page.content()
+            soup = BeautifulSoup(full_html, "html.parser")
+            for tag in soup(["script", "style"]):
+                tag.decompose()
+            html = str(soup)
+
+            result = {
+                "query": query,
+                "html": html,
+                "url": page.url,
+                "originalHtmlLength": len(full_html),
+            }
+
+            if save_to_file:
+                if not output_path:
+                    output_dir = Path("./google-search-html")
+                    output_dir.mkdir(exist_ok=True)
+                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                    sanitized_query = re.sub(r'[^a-zA-Z0-9]', '_', query)[:50]
+                    output_path = str(output_dir / f"{sanitized_query}-{timestamp}.html")
+
+                with open(output_path, "w", encoding="utf-8") as f:
+                    f.write(html)
+                result["savedPath"] = output_path
+
+                screenshot_path = Path(output_path).with_suffix(".png")
+                await page.screenshot(path=str(screenshot_path), full_page=True)
+                result["screenshotPath"] = str(screenshot_path)
+
+            if not no_save_state:
+                await context.storage_state(path=str(state_file_path))
+                fingerprint_file = state_file_path.with_suffix(".json-fingerprint.json")
+                with open(fingerprint_file, "w") as f:
+                    json.dump(saved_state, f, indent=2)
+
+            return result
+
+        except Error as e:
+            if "Human verification" in str(e) and headless_mode:
+                logger.warning("Human verification detected, restarting in headed mode.")
+                await browser.close()
+                return await perform_search_and_get_html(p, False, output_path)
+            else:
+                logger.error(f"An error occurred while getting HTML: {e}")
+                raise e
+        finally:
+            if context: await context.close()
+            if browser: await browser.close()
+
+    async with async_playwright() as p:
+        return await perform_search_and_get_html(p, headless, output_path)

@@ -1,15 +1,15 @@
 [project]
-name = "google-search-server"
+name = "google-search"
 version = "0.1.0"
 dependencies = [
     "fastmcp",
     "playwright",
     "beautifulsoup4",
-    "googlesearch-python",
 ]
 
 [project.scripts]
 google-search-server = "google_search_server.main:mcp.run"
+google-search = "google_search_server.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
