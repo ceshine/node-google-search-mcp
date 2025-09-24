@@ -1,6 +1,15 @@
 [project]
-name = "fastmcp-server"
+name = "google-search-server"
 version = "0.1.0"
 dependencies = [
     "fastmcp",
+    "playwright",
+    "beautifulsoup4",
+    "googlesearch-python",
 ]
+
+[project.scripts]
+google-search-server = "google_search_server.main:mcp.run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
