@@ -6,11 +6,15 @@ dependencies = [
     "fastmcp>=2.12.3",
     "playwright>=1.55.0",
     "beautifulsoup4>=4.13.5",
+    "typer>=0.19.2",
 ]
 
 [project.scripts]
 google-search-server = "google_search_server.main:mcp.run"
-google-search = "google_search_server.cli:main"
+google-search-cli = "google_search_server.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pyright]
+reportCallInDefaultInitializer = false

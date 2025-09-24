@@ -1,13 +1,13 @@
-import asyncio
-import json
-import logging
 import os
-import random
 import re
 import sys
+import json
+import random
+import logging
+import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from bs4 import BeautifulSoup
 from playwright.async_api import (
@@ -24,11 +24,11 @@ log_dir = Path(os.path.join(os.path.expanduser("~"), ".google-search-logs"))
 log_dir.mkdir(parents=True, exist_ok=True)
 log_file_path = log_dir / "google-search.log"
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 handler = logging.FileHandler(log_file_path)
 handler.setLevel(logging.DEBUG)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
@@ -67,7 +67,8 @@ SEARCH_INPUT_SELECTORS = [
 
 # --- Helper Functions ---
 
-def get_host_machine_config(locale: str = "en-US") -> Dict[str, Any]:
+
+def get_host_machine_config(locale: str = "en-US") -> dict[str, Any]:
     platform = sys.platform
     if platform == "darwin":
         device_name = "Desktop Safari"
@@ -85,15 +86,17 @@ def get_host_machine_config(locale: str = "en-US") -> Dict[str, Any]:
         "forcedColors": "none",
     }
 
+
 def get_random_delay(min_val: int, max_val: int) -> int:
     return random.randint(min_val, max_val)
+
 
 async def _create_browser_context(
     p: Playwright,
     browser: Browser,
     state_file: Path,
     locale: str,
-) -> Tuple[BrowserContext, Dict[str, Any]]:
+) -> tuple[BrowserContext, dict[str, Any]]:
     storage_state = str(state_file) if state_file.exists() else None
     saved_state = {}
     fingerprint_file = state_file.with_suffix(".json-fingerprint.json")
@@ -111,28 +114,34 @@ async def _create_browser_context(
     context_options = {**device_config}
 
     if "fingerprint" in saved_state:
-        context_options.update({
-            "locale": saved_state["fingerprint"]["locale"],
-            "timezone_id": saved_state["fingerprint"]["timezoneId"],
-            "color_scheme": saved_state["fingerprint"]["colorScheme"],
-        })
+        context_options.update(
+            {
+                "locale": saved_state["fingerprint"]["locale"],
+                "timezone_id": saved_state["fingerprint"]["timezoneId"],
+                "color_scheme": saved_state["fingerprint"]["colorScheme"],
+            }
+        )
     else:
         host_config = get_host_machine_config(locale)
-        context_options.update({
-            "locale": host_config["locale"],
-            "timezone_id": host_config["timezoneId"],
-            "color_scheme": host_config["colorScheme"],
-        })
+        context_options.update(
+            {
+                "locale": host_config["locale"],
+                "timezone_id": host_config["timezoneId"],
+                "color_scheme": host_config["colorScheme"],
+            }
+        )
         saved_state["fingerprint"] = host_config
 
-    context_options.update({
-        "viewport": {"width": 1920, "height": 1080},
-        "permissions": ["geolocation", "notifications"],
-        "accept_downloads": True,
-        "is_mobile": False,
-        "has_touch": False,
-        "java_script_enabled": True,
-    })
+    context_options.update(
+        {
+            "viewport": {"width": 1920, "height": 1080},
+            "permissions": ["geolocation", "notifications"],
+            "accept_downloads": True,
+            "is_mobile": False,
+            "has_touch": False,
+            "java_script_enabled": True,
+        }
+    )
 
     if storage_state:
         context_options["storage_state"] = storage_state
@@ -157,7 +166,8 @@ async def _create_browser_context(
     )
     return context, saved_state
 
-async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state: Dict) -> None:
+
+async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state: dict[str, Any]) -> None:
     selected_domain = saved_state.get("googleDomain")
     if not selected_domain:
         selected_domain = random.choice(GOOGLE_DOMAINS)
@@ -198,7 +208,8 @@ async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state
     if not results_found:
         raise Error("Could not find search results element.")
 
-async def _extract_results(page: Page, limit: int) -> List[Dict[str, str]]:
+
+async def _extract_results(page: Page, limit: int) -> list[dict[str, str]]:
     results = await page.evaluate(
         """(limit) => {
             const results = [];
@@ -240,7 +251,9 @@ async def _extract_results(page: Page, limit: int) -> List[Dict[str, str]]:
     )
     return results
 
+
 # --- Main Functions ---
+
 
 async def google_search(
     query: str,
@@ -251,9 +264,8 @@ async def google_search(
     locale: str = "en-US",
     headless: bool = True,
     **kwargs,
-) -> Dict[str, Any]:
-
-    async def perform_search(p: Playwright, headless_mode: bool) -> Dict[str, Any]:
+) -> dict[str, Any]:
+    async def perform_search(p: Playwright, headless_mode: bool) -> dict[str, Any]:
         browser = await p.chromium.launch(
             headless=headless_mode,
             args=[
@@ -311,8 +323,10 @@ async def google_search(
                 logger.error(f"An error occurred during search: {e}")
                 return {"query": query, "results": [], "error": str(e)}
         finally:
-            if context: await context.close()
-            if browser: await browser.close()
+            if context:
+                await context.close()
+            if browser:
+                await browser.close()
 
     async with async_playwright() as p:
         return await perform_search(p, headless)
@@ -320,18 +334,19 @@ async def google_search(
 
 async def get_google_search_page_html(
     query: str,
-    options: Dict[str, Any],
+    options: dict[str, Any],
     save_to_file: bool = False,
-    output_path: Optional[str] = None,
-) -> Dict[str, Any]:
-
+    output_path: str | None = None,
+) -> dict[str, Any]:
     timeout = options.get("timeout", DEFAULT_TIMEOUT)
     state_file = options.get("state_file", "./browser-state.json")
     no_save_state = options.get("no_save_state", False)
     locale = options.get("locale", "en-US")
     headless = not options.get("no_headless", False)
 
-    async def perform_search_and_get_html(p: Playwright, headless_mode: bool, output_path: Optional[str]) -> Dict[str, Any]:
+    async def perform_search_and_get_html(
+        p: Playwright, headless_mode: bool, output_path: str | None
+    ) -> dict[str, Any]:
         browser = await p.chromium.launch(
             headless=headless_mode,
             args=[
@@ -389,7 +404,7 @@ async def get_google_search_page_html(
                     output_dir = Path("./google-search-html")
                     output_dir.mkdir(exist_ok=True)
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    sanitized_query = re.sub(r'[^a-zA-Z0-9]', '_', query)[:50]
+                    sanitized_query = re.sub(r"[^a-zA-Z0-9]", "_", query)[:50]
                     output_path = str(output_dir / f"{sanitized_query}-{timestamp}.html")
 
                 with open(output_path, "w", encoding="utf-8") as f:
@@ -417,8 +432,10 @@ async def get_google_search_page_html(
                 logger.error(f"An error occurred while getting HTML: {e}")
                 raise e
         finally:
-            if context: await context.close()
-            if browser: await browser.close()
+            if context:
+                await context.close()
+            if browser:
+                await browser.close()
 
     async with async_playwright() as p:
         return await perform_search_and_get_html(p, headless, output_path)

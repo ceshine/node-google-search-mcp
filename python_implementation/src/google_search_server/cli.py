@@ -1,55 +1,56 @@
-import argparse
-import asyncio
+#!/usr/bin/env python3
 import json
+import asyncio
+
+import typer
+
 from .search import google_search, get_google_search_page_html
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="A Google search CLI tool based on Playwright"
-    )
-    parser.add_argument("query", help="Search keyword")
-    parser.add_argument(
-        "-l", "--limit", type=int, default=10, help="Limit the number of results"
-    )
-    parser.add_argument(
-        "-t", "--timeout", type=int, default=30000, help="Timeout in milliseconds"
-    )
-    parser.add_argument(
-        "--no-headless",
-        action="store_true",
-        help="Deprecated: Always tries headless mode first, and automatically switches to headed mode if human verification is encountered",
-    )
-    parser.add_argument(
-        "--state-file",
-        default="./browser-state.json",
-        help="Path to the browser state file",
-    )
-    parser.add_argument(
-        "--no-save-state", action="store_true", help="Do not save browser state"
-    )
-    parser.add_argument(
-        "--get-html",
-        action="store_true",
-        help="Get the raw HTML of the search results page instead of parsed results",
-    )
-    parser.add_argument(
-        "--save-html", action="store_true", help="Save the HTML to a file"
-    )
-    parser.add_argument("--html-output", help="HTML output file path")
+app = typer.Typer(help="A Google search CLI tool based on Playwright")
 
-    args = parser.parse_args()
+
+@app.command()
+def main(
+    query: str = typer.Argument(..., help="Search keyword"),
+    limit: int = typer.Option(10, "-l", "--limit", help="Limit the number of results"),
+    timeout: int = typer.Option(30000, "-t", "--timeout", help="Timeout in milliseconds"),
+    no_headless: bool = typer.Option(
+        False,
+        "--no-headless",
+        help="Deprecated: Always tries headless mode first, and automatically switches to headed mode if human verification is encountered",
+    ),
+    state_file: str = typer.Option("./browser-state.json", "--state-file", help="Path to the browser state file"),
+    no_save_state: bool = typer.Option(False, "--no-save-state", help="Do not save browser state"),
+    get_html: bool = typer.Option(
+        False,
+        "--get-html",
+        help="Get the raw HTML of the search results page instead of parsed results",
+    ),
+    save_html: bool = typer.Option(False, "--save-html", help="Save the HTML to a file"),
+    html_output: str | None = typer.Option(None, "--html-output", help="HTML output file path"),
+):
+    """
+    Run a Google search using Playwright and return JSON results (or the page HTML).
+    """
+    options = {
+        "timeout": timeout,
+        "state_file": state_file,
+        "no_save_state": no_save_state,
+        "locale": "en-US",
+        "no_headless": no_headless,
+    }
 
     async def run():
         try:
-            if args.get_html:
+            if get_html:
                 html_result = await get_google_search_page_html(
-                    query=args.query,
-                    options=vars(args),
-                    save_to_file=args.save_html,
-                    output_path=args.html_output,
+                    query=query,
+                    options=options,
+                    save_to_file=save_html,
+                    output_path=html_output,
                 )
-                if args.save_html and html_result.get("savedPath"):
-                    print(f"HTML has been saved to file: {html_result['savedPath']}")
+                if save_html and html_result.get("savedPath"):
+                    typer.echo(f"HTML has been saved to file: {html_result['savedPath']}")
 
                 output_result = {
                     "query": html_result.get("query"),
@@ -58,17 +59,29 @@ def main():
                     "cleanedHtmlLength": len(html_result.get("html", "")),
                     "savedPath": html_result.get("savedPath"),
                     "screenshotPath": html_result.get("screenshotPath"),
-                    "htmlPreview": html_result.get("html", "")[:500] + ("..." if len(html_result.get("html", "")) > 500 else ""),
+                    "htmlPreview": html_result.get("html", "")[:500]
+                    + ("..." if len(html_result.get("html", "")) > 500 else ""),
                 }
-                print(json.dumps(output_result, indent=2))
+                typer.echo(json.dumps(output_result, indent=2))
             else:
-                results = await google_search(**vars(args))
-                print(json.dumps(results, indent=2))
+                # Call google_search with explicit parameters to avoid ambiguity.
+                # Pass a literal locale string to avoid type errors from dict lookups.
+                results = await google_search(
+                    query=query,
+                    limit=limit,
+                    timeout=timeout,
+                    state_file=state_file,
+                    no_save_state=no_save_state,
+                    locale="en-US",
+                    headless=not no_headless,
+                )
+                typer.echo(json.dumps(results, indent=2))
         except Exception as e:
-            print(f"Error: {e}")
-            exit(1)
+            typer.echo(f"Error: {e}", err=True)
+            raise typer.Exit(code=1)
 
     asyncio.run(run())
 
+
 if __name__ == "__main__":
-    main()
+    app()
