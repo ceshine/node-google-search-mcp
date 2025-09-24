@@ -1,10 +1,11 @@
 [project]
 name = "google-search"
 version = "0.1.0"
+requires-python = ">=3.12"
 dependencies = [
-    "fastmcp",
-    "playwright",
-    "beautifulsoup4",
+    "fastmcp>=2.12.3",
+    "playwright>=1.55.0",
+    "beautifulsoup4>=4.13.5",
 ]
 
 [project.scripts]
