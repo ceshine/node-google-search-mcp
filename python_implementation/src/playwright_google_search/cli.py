@@ -16,9 +16,7 @@ def main(
     timeout: int = typer.Option(30000, "-t", "--timeout", help="Timeout in milliseconds"),
     headless: bool = typer.Option(
         True,
-        "-h",
-        "--headless",
-        help="Deprecated: Always tries headless mode first, and automatically switches to headed mode if human verification is encountered",
+        help="Allow user to explicitly enable or disable headless mode. The default is True (using headless mode).",
     ),
     state_file: str = typer.Option("./browser-state.json", "--state-file", help="Path to the browser state file"),
     save_state: bool = typer.Option(True, "-s", "--save-state", help="Save browser state for the current session"),
@@ -72,9 +70,9 @@ def main(
                     limit=limit,
                     timeout=timeout,
                     state_file=state_file,
-                    no_save_state=save_state,
+                    no_save_state=not save_state,
                     locale="en-US",
-                    headless=not headless,
+                    headless=headless,
                 )
                 typer.echo(json.dumps(results, indent=2))
         except Exception as e:

@@ -24,12 +24,12 @@ log_file_path = log_dir / "google-search.log"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-logger = logging.getLogger(__name__)
+LOGGER = logging.getLogger(__name__)
 handler = logging.FileHandler(log_file_path)
 handler.setLevel(logging.DEBUG)
 formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 handler.setFormatter(formatter)
-logger.addHandler(handler)
+LOGGER.addHandler(handler)
 
 
 # --- Constants ---
@@ -222,7 +222,9 @@ async def _create_browser_context(
     return context, saved_state
 
 
-async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state: dict[str, Any]) -> None:
+async def _navigate_and_search(
+    page: Page, query: str, timeout: int, saved_state: dict[str, Any], headless_mode: bool
+) -> None:
     """Navigate a Playwright Page to Google and perform a search for a query.
 
     This helper navigates the provided Playwright Page to a selected Google domain (either restored from saved_state or chosen randomly),
@@ -238,6 +240,7 @@ async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state
         timeout (int): Timeout in milliseconds for navigation and waiting operations.
         saved_state (dict[str, Any]): Mutable dictionary representing persistent state/fingerprint
             metadata. If a googleDomain is not present it will be set to a chosen domain.
+        headless_mode (bool): Indicates whether the search is being performed in headless mode.
 
     Raises:
         playwright.async_api.Error: Raised when a human verification/captcha page is detected,
@@ -261,12 +264,12 @@ async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state
         selected_domain = random.choice(GOOGLE_DOMAINS)
         saved_state["googleDomain"] = selected_domain
 
-    logger.info(f"Navigating to {selected_domain}")
+    LOGGER.info(f"Navigating to {selected_domain}")
     _ = await page.goto(selected_domain, timeout=timeout, wait_until="networkidle")
-    logger.info(f"Navigated to {page.url}")
+    LOGGER.info(f"Navigated to {page.url}")
 
     if any(pattern in page.url for pattern in SORRY_PATTERNS):
-        logger.warning("Human verification page detected on initial navigation.")
+        LOGGER.warning("Human verification page detected on initial navigation.")
         raise PlaywrightError("Human verification page detected.")
 
     # Locate the search box
@@ -288,7 +291,17 @@ async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state
 
     # Detect ReCAPTCHA
     if any(pattern in page.url for pattern in SORRY_PATTERNS):
-        raise PlaywrightError("Human verification page detected after search.")
+        if headless_mode:
+            raise PlaywrightError("Human verification page detected after search while in headless mode...")
+        LOGGER.warning(
+            "Human verification page detected after search, please complete the verification in the browser...",
+        )
+        # Wait for the user to complete verification and be redirected back to the search page
+        await page.wait_for_url(
+            url=lambda url: all(pattern not in url for pattern in SORRY_PATTERNS),
+            timeout=timeout * 2,
+        )
+        LOGGER.info("Human verification complete, continuing search...")
 
     # Detect search result
     results_found = False
@@ -381,6 +394,7 @@ async def _extract_results(page: Page, limit: int) -> list[dict[str, str]]:
 
 
 async def _launch_browser(p: Playwright, headless_mode: bool) -> Browser:
+    LOGGER.info("Launching browser in %s mode...", "headless" if headless_mode else "headed")
     return await p.chromium.launch(
         headless=headless_mode,
         args=CHROMIUM_LAUNCH_ARGS,
@@ -438,7 +452,7 @@ async def google_search(
                     p, browser, state_file, locale
                 )
 
-                await _navigate_and_search(page, query, timeout, saved_state)
+                await _navigate_and_search(page, query, timeout, saved_state, headless_mode)
                 results = await _extract_results(page, limit)
 
                 await _persist_state_if_needed(context, state_file_path, saved_state, no_save_state)
@@ -446,17 +460,22 @@ async def google_search(
                 return {"query": query, "results": results}
 
             except PlaywrightError as e:
-                if _is_human_verification_error(e) and headless_mode:
-                    logger.warning("Human verification detected, restarting in headed mode.")
-                    headless_mode = False
-                    # retry on next loop iteration
+                if _is_human_verification_error(e):
+                    if headless_mode:
+                        LOGGER.warning("Human verification detected, restarting in headed mode.")
+                        headless_mode = False
+                        # retry on next loop iteration
+                    else:
+                        break
                 else:
-                    logger.error(f"An error occurred during search: {e}")
+                    LOGGER.error(f"An error occurred during search: {e}")
                     return {"query": query, "results": [], "error": str(e)}
             finally:
                 if context:
+                    LOGGER.info("Closing the context...")
                     await context.close()
                 if browser:
+                    LOGGER.info("Closing the browser...")
                     await browser.close()
         return {"query": query, "results": [], "error": "Human verification detected; retry in headed mode exhausted."}
 
@@ -483,7 +502,7 @@ async def get_google_search_page_html(
                     p, browser, state_file, locale
                 )
 
-                await _navigate_and_search(page, query, timeout, saved_state)
+                await _navigate_and_search(page, query, timeout, saved_state, headless_mode)
 
                 full_html = await page.content()
                 soup = BeautifulSoup(full_html, "html.parser")
@@ -520,16 +539,18 @@ async def get_google_search_page_html(
 
             except PlaywrightError as e:
                 if _is_human_verification_error(e) and headless_mode:
-                    logger.warning("Human verification detected, restarting in headed mode.")
+                    LOGGER.warning("Human verification detected, restarting in headed mode.")
                     headless_mode = False
                     # retry on next loop iteration
                 else:
-                    logger.error(f"An error occurred while getting HTML: {e}")
+                    LOGGER.error(f"An error occurred while getting HTML: {e}")
                     return {"query": query, "html": "", "url": "", "error": str(e)}
             finally:
                 if context:
+                    LOGGER.info("Closing the context...")
                     await context.close()
                 if browser:
+                    LOGGER.info("Closing the browser...")
                     await browser.close()
 
         return {
