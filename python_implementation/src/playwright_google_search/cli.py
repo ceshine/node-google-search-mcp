@@ -29,9 +29,7 @@ def main(
     save_html: bool = typer.Option(False, "--save-html", help="Save the HTML to a file"),
     html_output: str | None = typer.Option(None, "--html-output", help="HTML output file path"),
 ):
-    """
-    Run a Google search using Playwright and return JSON results (or the page HTML).
-    """
+    """Run a Google search using Playwright and return JSON results (or the page HTML)."""
     options = {
         "timeout": timeout,
         "state_file": state_file,
