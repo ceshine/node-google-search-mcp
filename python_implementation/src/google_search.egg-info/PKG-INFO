@@ -1,6 +1,0 @@
-Metadata-Version: 2.4
-Name: google-search
-Version: 0.1.0
-Requires-Dist: fastmcp
-Requires-Dist: playwright
-Requires-Dist: beautifulsoup4
