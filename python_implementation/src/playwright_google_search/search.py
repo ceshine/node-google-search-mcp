@@ -13,7 +13,7 @@ from playwright.async_api import (
     BrowserContext,
     Page,
     Playwright,
-    Error,
+    Error as PlaywrightError,
     async_playwright,
 )
 
@@ -74,11 +74,12 @@ async def _create_browser_context(
 ) -> tuple[BrowserContext, dict[str, Any]]:
     """Create and configure a Playwright BrowserContext with persistent fingerprinting/state.
 
-    This helper initializes a BrowserContext tailored for desktop-like browsing and
-    attempts to restore or synthesize a lightweight "fingerprint" to reduce
-    detection by sites (for example Google). The function will read a storage
-    state file (if present) and a companion fingerprint JSON file to restore
+    This helper initializes a BrowserContext tailored for desktop-like browsing and attempts to restore or
+    synthesize a lightweight "fingerprint" to reduce detection by sites (for example Google).
+
+    The function will read a storage state file (if present) and a companion fingerprint JSON file to restore
     prior settings such as device name, locale, timezone and color scheme.
+
     When no fingerprint exists, a host fingerprint is synthesized and returned
     as part of the saved_state.
 
@@ -93,24 +94,19 @@ async def _create_browser_context(
             fingerprint locale is available.
 
     Returns:
-        tuple[BrowserContext, dict[str, Any]]: A tuple containing the newly created
-        BrowserContext and a dictionary representing the saved fingerprint/state
-        metadata. The saved_state will always include a "fingerprint" key after
-        the call (either loaded from disk or synthesized).
+        tuple[BrowserContext, dict[str, Any]]:
+            A tuple containing the newly created BrowserContext and a dictionary representing the saved fingerprint/state metadata.
+            The saved_state will always include a "fingerprint" key after the call (either loaded from disk or synthesized).
 
     Raises:
-        Any exception raised while reading files or creating the context (e.g.
-        file I/O errors, Playwright errors) will propagate to the caller.
+        Any exception raised while reading files or creating the context (e.g. file I/O errors, Playwright errors) will propagate to the caller.
 
     Notes:
-        - The created context is configured with a desktop viewport, common
-            permissions (geolocation, notifications), and options intended to
-            mimic a regular browser session.
-        - An init script is injected to modify common navigator and WebGL
-            properties to help mask automation artifacts (navigator.webdriver,
-            plugins, languages, chrome runtime, WebGL parameters).
-        - The function does not close the provided browser; the caller is
-            responsible for closing the context and browser when finished.
+        - The created context is configured with a desktop viewport, common permissions (geolocation, notifications), and options intended to
+          mimic a regular browser session.
+        - An init script is injected to modify common navigator and WebGL properties to help mask automation artifacts (navigator.webdriver,
+          plugins, languages, chrome runtime, WebGL parameters).
+        - The function does not close the provided browser; the caller is responsible for closing the context and browser when finished.
 
     Example:
         async with async_playwright() as p:
@@ -119,18 +115,21 @@ async def _create_browser_context(
                 p, browser, Path("browser-state.json"), "en-US"
             )
     """
-    storage_state = str(state_file) if state_file.exists() else None
+    storage_state_path_str = str(state_file) if state_file.exists() else None
+
+    # Load the fingerprint if exists
     saved_state = {}
     fingerprint_file = state_file.with_suffix(".json-fingerprint.json")
     if fingerprint_file.exists():
         with open(fingerprint_file, "r") as f:
             saved_state = json.load(f)
+            assert isinstance(saved_state, dict)
 
-    device_list = ["Desktop Chrome", "Desktop Edge", "Desktop Firefox", "Desktop Safari"]
-
+    # We always use Chromium for now
+    # device_list = ["Desktop Chrome", "Desktop Edge", "Desktop Firefox", "Desktop Safari"]
     device_name = saved_state.get("fingerprint", {}).get("deviceName")
     if not device_name or device_name not in p.devices:
-        device_name = random.choice(device_list)
+        device_name = "Desktop Chrome"  # We always use Chromium for now
 
     device_config = p.devices[device_name]
     context_options = {**device_config}
@@ -145,7 +144,7 @@ async def _create_browser_context(
         )
     else:
         host_config = {
-            "deviceName": "Desktop Chrome",  # We always use Chromium for now
+            "deviceName": device_name,
             "locale": locale,
             "timezoneId": "America/New_York",
             "colorScheme": "dark" if datetime.now().hour >= 19 or datetime.now().hour < 7 else "light",
@@ -172,8 +171,8 @@ async def _create_browser_context(
         }
     )
 
-    if storage_state:
-        context_options["storage_state"] = storage_state
+    if storage_state_path_str:
+        context_options["storage_state"] = storage_state_path_str
 
     context = await browser.new_context(**context_options)
 
@@ -197,19 +196,53 @@ async def _create_browser_context(
 
 
 async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state: dict[str, Any]) -> None:
+    """Navigate a Playwright Page to Google and perform a search for a query.
+
+    This helper navigates the provided Playwright Page to a selected Google domain (either restored from saved_state or chosen randomly),
+    finds the search input, types the query, and submits the search. It performs several checks to detect human verification (captcha) pages
+    and validates that search results are present after the search completes.
+
+    The function may update the provided saved_state in-place by setting a "googleDomain" key when a domain is chosen.
+    It intentionally does not close or modify the provided Page object beyond performing navigation and input actions.
+
+    Args:
+        page (Page): The Playwright Page instance to use for navigation and interaction.
+        query (str): The search query string to enter into Google's search input.
+        timeout (int): Timeout in milliseconds for navigation and waiting operations.
+        saved_state (dict[str, Any]): Mutable dictionary representing persistent state/fingerprint
+            metadata. If a googleDomain is not present it will be set to a chosen domain.
+
+    Raises:
+        playwright.async_api.Error: Raised when a human verification/captcha page is detected,
+            when the search input cannot be located, or when search results cannot be found.
+            Any underlying Playwright navigation or interaction errors will also propagate
+            as Error.
+
+    Returns:
+        None
+
+    Notes:
+        - The function uses a small set of selectors to locate the search input and result
+            containers; changes in Google's DOM may require selector updates.
+        - The function types the query with a small randomized delay between keystrokes and
+            waits for network idle when navigating to reduce detection.
+    """
+
+    # Decide the Google domain to use
     selected_domain = saved_state.get("googleDomain")
     if not selected_domain:
         selected_domain = random.choice(GOOGLE_DOMAINS)
         saved_state["googleDomain"] = selected_domain
 
     logger.info(f"Navigating to {selected_domain}")
-    await page.goto(selected_domain, timeout=timeout, wait_until="networkidle")
+    _ = await page.goto(selected_domain, timeout=timeout, wait_until="networkidle")
     logger.info(f"Navigated to {page.url}")
 
     if any(pattern in page.url for pattern in SORRY_PATTERNS):
         logger.warning("Human verification page detected on initial navigation.")
-        raise Error("Human verification page detected.")
+        raise PlaywrightError("Human verification page detected.")
 
+    # Locate the search box
     search_input = None
     for selector in SEARCH_INPUT_SELECTORS:
         search_input = await page.query_selector(selector)
@@ -217,17 +250,20 @@ async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state
             break
 
     if not search_input:
-        raise Error("Could not find search box.")
+        raise PlaywrightError("Could not find search box.")
 
+    # Type in the query
     await search_input.click()
     await page.keyboard.type(query, delay=random.randint(10, 30))
     await asyncio.sleep(random.randint(100, 300) / 1000)
     async with page.expect_navigation(wait_until="networkidle", timeout=timeout):
         await page.keyboard.press("Enter")
 
+    # Detect ReCAPTCHA
     if any(pattern in page.url for pattern in SORRY_PATTERNS):
-        raise Error("Human verification page detected after search.")
+        raise PlaywrightError("Human verification page detected after search.")
 
+    # Detect search result
     results_found = False
     for selector in SEARCH_RESULT_SELECTORS:
         if await page.query_selector(selector):
@@ -235,55 +271,86 @@ async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state
             break
 
     if not results_found:
-        raise Error("Could not find search results element.")
+        raise PlaywrightError("Could not find search results element.")
+
+    # Search result is available on the current page now
 
 
 async def _extract_results(page: Page, limit: int) -> list[dict[str, str]]:
-    results = await page.evaluate(
-        """(limit) => {
-            const results = [];
-            const seenUrls = new Set();
-            const selectorSets = [
-                { container: '#search div[data-hveid]', title: 'h3', snippet: '.VwiC3b' },
-                { container: '#rso div[data-hveid]', title: 'h3', snippet: '[data-sncf="1"]' },
-                { container: '.g', title: 'h3', snippet: 'div[style*="webkit-line-clamp"]' },
-                { container: 'div[jscontroller][data-hveid]', title: 'h3', snippet: 'div[role="text"]' },
-            ];
+    """Extract structured search result entries from a Google search results Page.
 
-            for (const selectors of selectorSets) {
-                if (results.length >= limit) break;
-                const containers = document.querySelectorAll(selectors.container);
-                for (const container of containers) {
-                    if (results.length >= limit) break;
-                    const titleElement = container.querySelector(selectors.title);
-                    if (!titleElement) continue;
-                    const title = titleElement.textContent.trim();
-                    const linkElement = titleElement.closest('a');
-                    const link = linkElement ? linkElement.href : '';
-                    if (!link || !link.startsWith('http') || seenUrls.has(link)) continue;
+    This asynchronous helper inspects the provided Playwright Page and attempts to
+    locate individual search result containers using a prioritized list of common
+    Google result selectors. For each container it extracts a title, a link (URL),
+    and an optional snippet/description. The function deduplicates results by URL
+    and stops once `limit` results have been collected.
 
-                    let snippet = '';
-                    const snippetElement = container.querySelector(selectors.snippet);
-                    if (snippetElement) {
-                        snippet = snippetElement.textContent.trim();
-                    }
+    Args:
+        page (Page): Playwright Page object representing a loaded Google search results page.
+        limit (int): Maximum number of result dictionaries to return.
 
-                    if (title && link) {
-                        results.push({ title, link, snippet });
-                        seenUrls.add(link);
-                    }
-                }
-            }
-            return results.slice(0, limit);
-        }""",
-        limit,
-    )
-    return results
+    Returns:
+        list[dict[str, str]]: A list of result dictionaries, each containing:
+            - "title": The visible title text for the result.
+            - "link" : The absolute URL string for the result (typically starting with "http").
+            - "snippet": A short descriptive snippet if available, otherwise an empty string.
+
+    Raises:
+        playwright.async_api.Error: Any Playwright errors raised while querying the DOM or
+            retrieving element attributes will propagate to the caller.
+
+    Notes:
+        - The function iterates through several selector patterns to maximize compatibility
+            with different Google DOM shapes and ranks results by the order of selector_sets.
+        - Results without a title, without a valid http/https link, or duplicate URLs are skipped.
+        - This function is I/O bound and must be awaited (it performs many Playwright element calls).
+
+    Example:
+        results = await _extract_results(page, 10)
+    """
+    selector_sets = [
+        {"container": "#search div[data-hveid]", "title": "h3", "snippet": ".VwiC3b"},
+        {"container": "#rso div[data-hveid]", "title": "h3", "snippet": "[data-sncf='1']"},
+        {"container": ".g", "title": "h3", "snippet": "div[style*='webkit-line-clamp']"},
+        {"container": "div[jscontroller][data-hveid]", "title": "h3", "snippet": "div[role='text']"},
+    ]
+
+    results: list[dict[str, str]] = []
+    seen_urls: set[str] = set()
+
+    for selectors in selector_sets:
+        if len(results) >= limit:
+            break
+
+        containers = await page.query_selector_all(selectors["container"])
+        for container in containers:
+            if len(results) >= limit:
+                break
+
+            title_el = await container.query_selector(selectors["title"])
+            if not title_el:
+                continue
+
+            title = (await title_el.inner_text()).strip()
+            if not title:
+                continue
+
+            # Find the closest ancestor <a> and get its href
+            link_el = await title_el.query_selector("xpath=ancestor::a[1]")
+            link = (await link_el.get_attribute("href")) if link_el else ""
+            if not link or not link.startswith("http") or link in seen_urls:
+                continue
+
+            snippet_el = await container.query_selector(selectors["snippet"])
+            snippet = (await snippet_el.inner_text()).strip() if snippet_el else ""
+
+            results.append({"title": title, "link": link, "snippet": snippet})
+            seen_urls.add(link)
+
+    return results[:limit]
 
 
 # --- Main Functions ---
-
-
 async def google_search(
     query: str,
     limit: int = 10,
@@ -292,7 +359,6 @@ async def google_search(
     no_save_state: bool = False,
     locale: str = "en-US",
     headless: bool = True,
-    **kwargs,
 ) -> dict[str, Any]:
     async def perform_search(p: Playwright, headless_mode: bool) -> dict[str, Any]:
         browser = await p.chromium.launch(
@@ -343,7 +409,7 @@ async def google_search(
 
             return {"query": query, "results": results}
 
-        except Error as e:
+        except PlaywrightError as e:
             if "Human verification" in str(e) and headless_mode:
                 logger.warning("Human verification detected, restarting in headed mode.")
                 await browser.close()
@@ -452,7 +518,7 @@ async def get_google_search_page_html(
 
             return result
 
-        except Error as e:
+        except PlaywrightError as e:
             if "Human verification" in str(e) and headless_mode:
                 logger.warning("Human verification detected, restarting in headed mode.")
                 await browser.close()
