@@ -1,6 +1,4 @@
-import os
 import re
-import sys
 import json
 import random
 import logging
@@ -20,11 +18,12 @@ from playwright.async_api import (
 )
 
 # --- Logger Setup ---
-log_dir = Path(os.path.join(os.path.expanduser("~"), ".google-search-logs"))
+log_dir = Path.home() / ".playwright-google-search"
 log_dir.mkdir(parents=True, exist_ok=True)
 log_file_path = log_dir / "google-search.log"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+
 logger = logging.getLogger(__name__)
 handler = logging.FileHandler(log_file_path)
 handler.setLevel(logging.DEBUG)
@@ -65,38 +64,61 @@ SEARCH_INPUT_SELECTORS = [
     "textarea",
 ]
 
+
 # --- Helper Functions ---
-
-
-def get_host_machine_config(locale: str = "en-US") -> dict[str, Any]:
-    platform = sys.platform
-    if platform == "darwin":
-        device_name = "Desktop Safari"
-    elif platform == "win32":
-        device_name = "Desktop Edge"
-    else:
-        device_name = "Desktop Firefox"
-
-    return {
-        "deviceName": device_name,
-        "locale": locale,
-        "timezoneId": "America/New_York",
-        "colorScheme": "dark" if datetime.now().hour >= 19 or datetime.now().hour < 7 else "light",
-        "reducedMotion": "no-preference",
-        "forcedColors": "none",
-    }
-
-
-def get_random_delay(min_val: int, max_val: int) -> int:
-    return random.randint(min_val, max_val)
-
-
 async def _create_browser_context(
     p: Playwright,
     browser: Browser,
     state_file: Path,
     locale: str,
 ) -> tuple[BrowserContext, dict[str, Any]]:
+    """Create and configure a Playwright BrowserContext with persistent fingerprinting/state.
+
+    This helper initializes a BrowserContext tailored for desktop-like browsing and
+    attempts to restore or synthesize a lightweight "fingerprint" to reduce
+    detection by sites (for example Google). The function will read a storage
+    state file (if present) and a companion fingerprint JSON file to restore
+    prior settings such as device name, locale, timezone and color scheme.
+    When no fingerprint exists, a host fingerprint is synthesized and returned
+    as part of the saved_state.
+
+    Args:
+        p (Playwright): The active Playwright instance (from async_playwright()).
+        browser (Browser): A launched Playwright Browser instance (typically chromium).
+        state_file (Path): Path to a JSON file that may contain a Playwright
+            storage state. If present, its path will be passed to the context
+            as storage_state, and a companion fingerprint file
+            (state_file.with_suffix(".json-fingerprint.json")) will be read.
+        locale (str): Preferred locale (e.g. "en-US") to use when no saved
+            fingerprint locale is available.
+
+    Returns:
+        tuple[BrowserContext, dict[str, Any]]: A tuple containing the newly created
+        BrowserContext and a dictionary representing the saved fingerprint/state
+        metadata. The saved_state will always include a "fingerprint" key after
+        the call (either loaded from disk or synthesized).
+
+    Raises:
+        Any exception raised while reading files or creating the context (e.g.
+        file I/O errors, Playwright errors) will propagate to the caller.
+
+    Notes:
+        - The created context is configured with a desktop viewport, common
+            permissions (geolocation, notifications), and options intended to
+            mimic a regular browser session.
+        - An init script is injected to modify common navigator and WebGL
+            properties to help mask automation artifacts (navigator.webdriver,
+            plugins, languages, chrome runtime, WebGL parameters).
+        - The function does not close the provided browser; the caller is
+            responsible for closing the context and browser when finished.
+
+    Example:
+        async with async_playwright() as p:
+            browser = await p.chromium.launch()
+            context, saved_state = await _create_browser_context(
+                p, browser, Path("browser-state.json"), "en-US"
+            )
+    """
     storage_state = str(state_file) if state_file.exists() else None
     saved_state = {}
     fingerprint_file = state_file.with_suffix(".json-fingerprint.json")
@@ -122,7 +144,14 @@ async def _create_browser_context(
             }
         )
     else:
-        host_config = get_host_machine_config(locale)
+        host_config = {
+            "deviceName": "Desktop Chrome",  # We always use Chromium for now
+            "locale": locale,
+            "timezoneId": "America/New_York",
+            "colorScheme": "dark" if datetime.now().hour >= 19 or datetime.now().hour < 7 else "light",
+            "reducedMotion": "no-preference",
+            "forcedColors": "none",
+        }
         context_options.update(
             {
                 "locale": host_config["locale"],
@@ -191,8 +220,8 @@ async def _navigate_and_search(page: Page, query: str, timeout: int, saved_state
         raise Error("Could not find search box.")
 
     await search_input.click()
-    await page.keyboard.type(query, delay=get_random_delay(10, 30))
-    await asyncio.sleep(get_random_delay(100, 300) / 1000)
+    await page.keyboard.type(query, delay=random.randint(10, 30))
+    await asyncio.sleep(random.randint(100, 300) / 1000)
     async with page.expect_navigation(wait_until="networkidle", timeout=timeout):
         await page.keyboard.press("Enter")
 

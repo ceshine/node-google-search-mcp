@@ -14,28 +14,28 @@ def main(
     query: str = typer.Argument(..., help="Search keyword"),
     limit: int = typer.Option(10, "-l", "--limit", help="Limit the number of results"),
     timeout: int = typer.Option(30000, "-t", "--timeout", help="Timeout in milliseconds"),
-    no_headless: bool = typer.Option(
-        False,
-        "--no-headless",
+    headless: bool = typer.Option(
+        True,
+        "-h",
+        "--headless",
         help="Deprecated: Always tries headless mode first, and automatically switches to headed mode if human verification is encountered",
     ),
     state_file: str = typer.Option("./browser-state.json", "--state-file", help="Path to the browser state file"),
-    no_save_state: bool = typer.Option(False, "--no-save-state", help="Do not save browser state"),
+    save_state: bool = typer.Option(True, "-s", "--save-state", help="Save browser state for the current session"),
     get_html: bool = typer.Option(
         False,
-        "--get-html",
         help="Get the raw HTML of the search results page instead of parsed results",
     ),
-    save_html: bool = typer.Option(False, "--save-html", help="Save the HTML to a file"),
-    html_output: str | None = typer.Option(None, "--html-output", help="HTML output file path"),
+    save_html: bool = typer.Option(False, help="Save the HTML to a file"),
+    html_output: str | None = typer.Option(None, help="HTML output file path"),
 ):
     """Run a Google search using Playwright and return JSON results (or the page HTML)."""
     options = {
         "timeout": timeout,
         "state_file": state_file,
-        "no_save_state": no_save_state,
+        "no_save_state": not save_state,
         "locale": "en-US",
-        "no_headless": no_headless,
+        "no_headless": not headless,
     }
 
     async def run():
@@ -69,9 +69,9 @@ def main(
                     limit=limit,
                     timeout=timeout,
                     state_file=state_file,
-                    no_save_state=no_save_state,
+                    no_save_state=save_state,
                     locale="en-US",
-                    headless=not no_headless,
+                    headless=not headless,
                 )
                 typer.echo(json.dumps(results, indent=2))
         except Exception as e:
