@@ -336,8 +336,8 @@ async def _extract_results(page: Page, limit: int) -> list[dict[str, str]]:
                 continue
 
             # Find the closest ancestor <a> and get its href
-            link_el = await title_el.query_selector("xpath=ancestor::a[1]")
-            link = (await link_el.get_attribute("href")) if link_el else ""
+            link = await title_el.evaluate("el => { const a = el.closest('a'); return a ? a.href : '' }")
+
             if not link or not link.startswith("http") or link in seen_urls:
                 continue
 
