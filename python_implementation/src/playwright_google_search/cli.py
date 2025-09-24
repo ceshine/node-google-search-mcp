@@ -47,20 +47,23 @@ def main(
                     save_to_file=save_html,
                     output_path=html_output,
                 )
-                if save_html and html_result.get("savedPath"):
-                    typer.echo(f"HTML has been saved to file: {html_result['savedPath']}")
+                if "error" in html_result:
+                    typer.echo(json.dumps(html_result, indent=2))
+                else:
+                    if save_html and html_result.get("savedPath"):
+                        typer.echo(f"HTML has been saved to file: {html_result['savedPath']}")
 
-                output_result = {
-                    "query": html_result.get("query"),
-                    "url": html_result.get("url"),
-                    "originalHtmlLength": html_result.get("originalHtmlLength"),
-                    "cleanedHtmlLength": len(html_result.get("html", "")),
-                    "savedPath": html_result.get("savedPath"),
-                    "screenshotPath": html_result.get("screenshotPath"),
-                    "htmlPreview": html_result.get("html", "")[:500]
-                    + ("..." if len(html_result.get("html", "")) > 500 else ""),
-                }
-                typer.echo(json.dumps(output_result, indent=2))
+                    output_result = {
+                        "query": html_result.get("query"),
+                        "url": html_result.get("url"),
+                        "originalHtmlLength": html_result.get("originalHtmlLength"),
+                        "cleanedHtmlLength": len(html_result.get("html", "")),
+                        "savedPath": html_result.get("savedPath"),
+                        "screenshotPath": html_result.get("screenshotPath"),
+                        "htmlPreview": html_result.get("html", "")[:500]
+                        + ("..." if len(html_result.get("html", "")) > 500 else ""),
+                    }
+                    typer.echo(json.dumps(output_result, indent=2))
             else:
                 # Call google_search with explicit parameters to avoid ambiguity.
                 # Pass a literal locale string to avoid type errors from dict lookups.

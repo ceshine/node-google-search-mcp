@@ -63,6 +63,33 @@ SEARCH_INPUT_SELECTORS = [
     "input[aria-label='Search']",
     "textarea",
 ]
+CHROMIUM_LAUNCH_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-features=IsolateOrigins,site-per-process",
+    "--disable-site-isolation-trials",
+    "--disable-web-security",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-accelerated-2d-canvas",
+    "--no-first-run",
+    "--no-zygote",
+    "--disable-gpu",
+    "--hide-scrollbars",
+    "--mute-audio",
+    "--disable-background-networking",
+    "--disable-background-timer-throttling",
+    "--disable-backgrounding-occluded-windows",
+    "--disable-breakpad",
+    "--disable-component-extensions-with-background-pages",
+    "--disable-extensions",
+    "--disable-features=TranslateUI",
+    "--disable-ipc-flooding-protection",
+    "--disable-renderer-backgrounding",
+    "--enable-features=NetworkService,NetworkServiceInProcess",
+    "--force-color-profile=srgb",
+    "--metrics-recording-only",
+]
 
 
 # --- Helper Functions ---
@@ -350,6 +377,47 @@ async def _extract_results(page: Page, limit: int) -> list[dict[str, str]]:
     return results[:limit]
 
 
+# --- Shared Utilities ---
+
+
+async def _launch_browser(p: Playwright, headless_mode: bool) -> Browser:
+    return await p.chromium.launch(
+        headless=headless_mode,
+        args=CHROMIUM_LAUNCH_ARGS,
+        ignore_default_args=["--enable-automation"],
+    )
+
+
+async def _prepare_context_page(
+    p: Playwright,
+    browser: Browser,
+    state_file: str,
+    locale: str,
+) -> tuple[BrowserContext, Page, dict[str, Any], Path]:
+    state_file_path = Path(state_file)
+    context, saved_state = await _create_browser_context(p, browser, state_file_path, locale)
+    page = await context.new_page()
+    return context, page, saved_state, state_file_path
+
+
+async def _persist_state_if_needed(
+    context: BrowserContext,
+    state_file_path: Path,
+    saved_state: dict[str, Any],
+    no_save_state: bool,
+) -> None:
+    if no_save_state:
+        return
+    _ = await context.storage_state(path=str(state_file_path))
+    fingerprint_file = state_file_path.with_suffix(".json-fingerprint.json")
+    with open(fingerprint_file, "w") as f:
+        json.dump(saved_state, f, indent=2)
+
+
+def _is_human_verification_error(e: Exception) -> bool:
+    return "Human verification" in str(e)
+
+
 # --- Main Functions ---
 async def google_search(
     query: str,
@@ -360,71 +428,37 @@ async def google_search(
     locale: str = "en-US",
     headless: bool = True,
 ) -> dict[str, Any]:
-    async def perform_search(p: Playwright, headless_mode: bool) -> dict[str, Any]:
-        browser = await p.chromium.launch(
-            headless=headless_mode,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--disable-site-isolation-trials",
-                "--disable-web-security",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--disable-gpu",
-                "--hide-scrollbars",
-                "--mute-audio",
-                "--disable-background-networking",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-breakpad",
-                "--disable-component-extensions-with-background-pages",
-                "--disable-extensions",
-                "--disable-features=TranslateUI",
-                "--disable-ipc-flooding-protection",
-                "--disable-renderer-backgrounding",
-                "--enable-features=NetworkService,NetworkServiceInProcess",
-                "--force-color-profile=srgb",
-                "--metrics-recording-only",
-            ],
-            ignore_default_args=["--enable-automation"],
-        )
-        context = None
-        try:
-            state_file_path = Path(state_file)
-            context, saved_state = await _create_browser_context(p, browser, state_file_path, locale)
-            page = await context.new_page()
-
-            await _navigate_and_search(page, query, timeout, saved_state)
-            results = await _extract_results(page, limit)
-
-            if not no_save_state:
-                await context.storage_state(path=str(state_file_path))
-                fingerprint_file = state_file_path.with_suffix(".json-fingerprint.json")
-                with open(fingerprint_file, "w") as f:
-                    json.dump(saved_state, f, indent=2)
-
-            return {"query": query, "results": results}
-
-        except PlaywrightError as e:
-            if "Human verification" in str(e) and headless_mode:
-                logger.warning("Human verification detected, restarting in headed mode.")
-                await browser.close()
-                return await perform_search(p, False)
-            else:
-                logger.error(f"An error occurred during search: {e}")
-                return {"query": query, "results": [], "error": str(e)}
-        finally:
-            if context:
-                await context.close()
-            if browser:
-                await browser.close()
-
     async with async_playwright() as p:
-        return await perform_search(p, headless)
+        headless_mode = headless
+        for _ in range(2):
+            browser = await _launch_browser(p, headless_mode)
+            context = None
+            try:
+                context, page, saved_state, state_file_path = await _prepare_context_page(
+                    p, browser, state_file, locale
+                )
+
+                await _navigate_and_search(page, query, timeout, saved_state)
+                results = await _extract_results(page, limit)
+
+                await _persist_state_if_needed(context, state_file_path, saved_state, no_save_state)
+
+                return {"query": query, "results": results}
+
+            except PlaywrightError as e:
+                if _is_human_verification_error(e) and headless_mode:
+                    logger.warning("Human verification detected, restarting in headed mode.")
+                    headless_mode = False
+                    # retry on next loop iteration
+                else:
+                    logger.error(f"An error occurred during search: {e}")
+                    return {"query": query, "results": [], "error": str(e)}
+            finally:
+                if context:
+                    await context.close()
+                if browser:
+                    await browser.close()
+        return {"query": query, "results": [], "error": "Human verification detected; retry in headed mode exhausted."}
 
 
 async def get_google_search_page_html(
@@ -439,98 +473,68 @@ async def get_google_search_page_html(
     locale = options.get("locale", "en-US")
     headless = not options.get("no_headless", False)
 
-    async def perform_search_and_get_html(
-        p: Playwright, headless_mode: bool, output_path: str | None
-    ) -> dict[str, Any]:
-        browser = await p.chromium.launch(
-            headless=headless_mode,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--disable-features=IsolateOrigins,site-per-process",
-                "--disable-site-isolation-trials",
-                "--disable-web-security",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-accelerated-2d-canvas",
-                "--no-first-run",
-                "--no-zygote",
-                "--disable-gpu",
-                "--hide-scrollbars",
-                "--mute-audio",
-                "--disable-background-networking",
-                "--disable-background-timer-throttling",
-                "--disable-backgrounding-occluded-windows",
-                "--disable-breakpad",
-                "--disable-component-extensions-with-background-pages",
-                "--disable-extensions",
-                "--disable-features=TranslateUI",
-                "--disable-ipc-flooding-protection",
-                "--disable-renderer-backgrounding",
-                "--enable-features=NetworkService,NetworkServiceInProcess",
-                "--force-color-profile=srgb",
-                "--metrics-recording-only",
-            ],
-            ignore_default_args=["--enable-automation"],
-        )
-        context = None
-        try:
-            state_file_path = Path(state_file)
-            context, saved_state = await _create_browser_context(p, browser, state_file_path, locale)
-            page = await context.new_page()
-
-            await _navigate_and_search(page, query, timeout, saved_state)
-
-            full_html = await page.content()
-            soup = BeautifulSoup(full_html, "html.parser")
-            for tag in soup(["script", "style"]):
-                tag.decompose()
-            html = str(soup)
-
-            result = {
-                "query": query,
-                "html": html,
-                "url": page.url,
-                "originalHtmlLength": len(full_html),
-            }
-
-            if save_to_file:
-                if not output_path:
-                    output_dir = Path("./google-search-html")
-                    output_dir.mkdir(exist_ok=True)
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    sanitized_query = re.sub(r"[^a-zA-Z0-9]", "_", query)[:50]
-                    output_path = str(output_dir / f"{sanitized_query}-{timestamp}.html")
-
-                with open(output_path, "w", encoding="utf-8") as f:
-                    f.write(html)
-                result["savedPath"] = output_path
-
-                screenshot_path = Path(output_path).with_suffix(".png")
-                await page.screenshot(path=str(screenshot_path), full_page=True)
-                result["screenshotPath"] = str(screenshot_path)
-
-            if not no_save_state:
-                await context.storage_state(path=str(state_file_path))
-                fingerprint_file = state_file_path.with_suffix(".json-fingerprint.json")
-                with open(fingerprint_file, "w") as f:
-                    json.dump(saved_state, f, indent=2)
-
-            return result
-
-        except PlaywrightError as e:
-            if "Human verification" in str(e) and headless_mode:
-                logger.warning("Human verification detected, restarting in headed mode.")
-                await browser.close()
-                return await perform_search_and_get_html(p, False, output_path)
-            else:
-                logger.error(f"An error occurred while getting HTML: {e}")
-                raise e
-        finally:
-            if context:
-                await context.close()
-            if browser:
-                await browser.close()
-
     async with async_playwright() as p:
-        return await perform_search_and_get_html(p, headless, output_path)
+        headless_mode = headless
+        for _ in range(2):
+            browser = await _launch_browser(p, headless_mode)
+            context = None
+            try:
+                context, page, saved_state, state_file_path = await _prepare_context_page(
+                    p, browser, state_file, locale
+                )
+
+                await _navigate_and_search(page, query, timeout, saved_state)
+
+                full_html = await page.content()
+                soup = BeautifulSoup(full_html, "html.parser")
+                for tag in soup(["script", "style"]):
+                    tag.decompose()
+                html = str(soup)
+
+                result = {
+                    "query": query,
+                    "html": html,
+                    "url": page.url,
+                    "originalHtmlLength": len(full_html),
+                }
+
+                if save_to_file:
+                    if not output_path:
+                        output_dir = Path("./google-search-html")
+                        output_dir.mkdir(exist_ok=True)
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        sanitized_query = re.sub(r"[^a-zA-Z0-9]", "_", query)[:50]
+                        output_path = str(output_dir / f"{sanitized_query}-{timestamp}.html")
+
+                    with open(output_path, "w", encoding="utf-8") as f:
+                        _ = f.write(html)
+                    result["savedPath"] = output_path
+
+                    screenshot_path = Path(output_path).with_suffix(".png")
+                    _ = await page.screenshot(path=str(screenshot_path), full_page=True)
+                    result["screenshotPath"] = str(screenshot_path)
+
+                await _persist_state_if_needed(context, state_file_path, saved_state, no_save_state)
+
+                return result
+
+            except PlaywrightError as e:
+                if _is_human_verification_error(e) and headless_mode:
+                    logger.warning("Human verification detected, restarting in headed mode.")
+                    headless_mode = False
+                    # retry on next loop iteration
+                else:
+                    logger.error(f"An error occurred while getting HTML: {e}")
+                    return {"query": query, "html": "", "url": "", "error": str(e)}
+            finally:
+                if context:
+                    await context.close()
+                if browser:
+                    await browser.close()
+
+        return {
+            "query": query,
+            "html": "",
+            "url": "",
+            "error": "Human verification detected; retry in headed mode exhausted.",
+        }
